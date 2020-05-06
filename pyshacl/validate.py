@@ -181,17 +181,26 @@ class Validator(object):
             ]
         else:
             named_graphs = [the_target_graph]
+        usage = {
+            'total_shapes':0,
+            'shapes_applied':0,
+            'num_reports':0,
+        }
         for g in named_graphs:
             if advanced:
                 #apply functions?
                 apply_rules(advanced['rules'], g)
             for s in shapes:
                 _is_conform, _reports = s.validate(g)
+                usage['total_shapes'] += 1
+                if s._run_count > 0:
+                    usage['shapes_applied'] += 1
+                usage['num_reports'] += len(_reports)
                 non_conformant = non_conformant or (not _is_conform)
                 reports.extend(_reports)
         v_report, v_text = self.create_validation_report(
             not non_conformant, the_target_graph, self.shacl_graph, reports)
-        return (not non_conformant), v_report, v_text
+        return (not non_conformant), v_report, v_text, usage
 
 
 def meta_validate(shacl_graph, inference='rdfs', **kwargs):
@@ -274,11 +283,16 @@ def validate(data_graph, *args, shacl_graph=None, ont_graph=None, advanced=False
             data_graph, shacl_graph=shacl_graph, ont_graph=ont_graph,
             options={'inference': inference, 'abort_on_error': abort_on_error,
                      'advanced': advanced, 'logger': log})
-        conforms, report_graph, report_text = validator.run()
+        conforms, report_graph, report_text, report_usage = validator.run()
     except ValidationFailure as e:
         conforms = False
         report_graph = e
         report_text = "Validation Failure - {}".format(e.message)
+        report_usage = {
+            'total_shapes': 0,
+            'shapes_applied': 0,
+            'num_reports': 0,
+        }
     if do_check_dash_result:
         passes = check_dash_result(validator.target_graph, report_graph, shacl_graph or data_graph)
         return passes, report_graph, report_text
@@ -292,7 +306,7 @@ def validate(data_graph, *args, shacl_graph=None, ont_graph=None, advanced=False
             do_serialize_report_graph = 'turtle'
         report_graph = report_graph.serialize(None, encoding='utf-8',
                                               format=do_serialize_report_graph)
-    return conforms, report_graph, report_text
+    return conforms, report_graph, report_text, report_usage
 
 
 def clean_validation_reports(actual_graph, actual_report, expected_graph, expected_report):

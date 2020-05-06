@@ -27,6 +27,7 @@ class Shape(object):
         self._p = p
         self._path = path
         self._advanced = False
+        self._run_count = 0
 
         deactivated_vals = set(self.objects(SH_deactivated))
         if len(deactivated_vals) > 1:
@@ -473,6 +474,7 @@ class Shape(object):
             run_count += 1
         #if run_count < 1:
             #raise RuntimeError("A SHACL Shape should have at least one parameter or attached property shape.")
+        self._run_count = run_count
         return (not non_conformant), reports
 
 
