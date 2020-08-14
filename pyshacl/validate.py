@@ -342,7 +342,7 @@ def validate(
             ont_graph=ont_graph,
             options={'inference': inference, 'abort_on_error': abort_on_error, 'advanced': advanced, 'logger': log},
         )
-        conforms, report_graph, report_text report_usage = validator.run()
+        conforms, report_graph, report_text, report_usage = validator.run()
     except ValidationFailure as e:
         conforms = False
         report_graph = e
