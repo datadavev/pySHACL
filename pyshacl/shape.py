@@ -58,6 +58,7 @@ class Shape(object):
         '_messages',
         '_names',
         '_descriptions',
+        '_run_count',
     )
 
     def __init__(
