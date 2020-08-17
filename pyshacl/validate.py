@@ -127,6 +127,7 @@ class Validator(object):
             vg.add((vr, SH.term('shapesApplied'), rdflib.Literal(usage_info['shapes_applied'])))
             vg.add(
                 (vr, SH.term('failureCount'), rdflib.Literal(usage_info['num_reports'])))
+            v_text += f"{usage_info['shapes_applied']} of {usage_info['total_shapes']} applied.\n"
         cloned_nodes: Dict[Tuple[GraphLike, str], Union[BNode, URIRef]] = {}
         for result in iter(results):
             _d, _bn, _tr = result
