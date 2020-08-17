@@ -23,6 +23,7 @@ from pyshacl.consts import (
     RDF_subject,
     RDF_type,
     RDFS_Resource,
+    SH,
     SH_conforms,
     SH_result,
     SH_resultMessage,
@@ -108,7 +109,7 @@ class Validator(object):
             raise ReportableRuntimeError("Error while running OWL-RL Deductive Closure\n" "{}".format(str(e.args[0])))
 
     @classmethod
-    def create_validation_report(cls, conforms: bool, results: List[Tuple]):
+    def create_validation_report(cls, conforms: bool, results: List[Tuple], usage_info=None):
         v_text = "Validation Report\nConforms: {}\n".format(str(conforms))
         result_len = len(results)
         if not conforms and result_len < 1:
@@ -121,6 +122,11 @@ class Validator(object):
         vr = BNode()
         vg.add((vr, RDF_type, SH_ValidationReport))
         vg.add((vr, SH_conforms, Literal(conforms)))
+        if not usage_info is None:
+            vg.add((vr, SH.term('shapeCount'), rdflib.Literal(usage_info['total_shapes'])))
+            vg.add((vr, SH.term('shapesApplied'), rdflib.Literal(usage_info['shapes_applied'])))
+            vg.add(
+                (vr, SH.term('failureCount'), rdflib.Literal(usage_info['num_reports'])))
         cloned_nodes: Dict[Tuple[GraphLike, str], Union[BNode, URIRef]] = {}
         for result in iter(results):
             _d, _bn, _tr = result
@@ -231,8 +237,8 @@ class Validator(object):
                 usage['num_reports'] += len(_reports)
                 non_conformant = non_conformant or (not _is_conform)
                 reports.extend(_reports)
-        v_report, v_text = self.create_validation_report(not non_conformant, reports)
-        return (not non_conformant), v_report, v_text, usage
+        v_report, v_text = self.create_validation_report(not non_conformant, reports, usage_info=usage)
+        return (not non_conformant), v_report, v_text
 
 
 def with_metashacl_shacl_graph_cache(f):
@@ -342,7 +348,7 @@ def validate(
             ont_graph=ont_graph,
             options={'inference': inference, 'abort_on_error': abort_on_error, 'advanced': advanced, 'logger': log},
         )
-        conforms, report_graph, report_text, report_usage = validator.run()
+        conforms, report_graph, report_text = validator.run()
     except ValidationFailure as e:
         conforms = False
         report_graph = e
@@ -366,7 +372,7 @@ def validate(
         if not (isinstance(do_serialize_report_graph, str)):
             do_serialize_report_graph = 'turtle'
         report_graph = report_graph.serialize(None, encoding='utf-8', format=do_serialize_report_graph)
-    return conforms, report_graph, report_text, report_usage
+    return conforms, report_graph, report_text
 
 
 def clean_validation_reports(actual_graph, actual_report, expected_graph, expected_report):
