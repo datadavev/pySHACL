@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 #
 import logging
+import sys
 
 from decimal import Decimal
-from typing import TYPE_CHECKING, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Set, Tuple, Type, Union
 
 from rdflib import RDF, BNode, Literal, URIRef
 
-from pyshacl.constraints import ALL_CONSTRAINT_PARAMETERS, CONSTRAINT_PARAMETERS_MAP
-from pyshacl.consts import (
+from .consts import (
     RDF_type,
     RDFS_Class,
     RDFS_subClassOf,
@@ -16,11 +16,13 @@ from pyshacl.consts import (
     SH_deactivated,
     SH_description,
     SH_inversePath,
+    SH_jsFunctionName,
+    SH_JSTarget,
+    SH_JSTargetType,
     SH_message,
     SH_name,
     SH_oneOrMorePath,
     SH_order,
-    SH_parameter,
     SH_property,
     SH_select,
     SH_severity,
@@ -35,13 +37,15 @@ from pyshacl.consts import (
     SH_zeroOrMorePath,
     SH_zeroOrOnePath,
 )
-from pyshacl.errors import ConstraintLoadError, ConstraintLoadWarning, ReportableRuntimeError, ShapeLoadError
-from pyshacl.pytypes import GraphLike
-from pyshacl.sparql_query_helper import SPARQLQueryHelper
+from .errors import ConstraintLoadError, ConstraintLoadWarning, ReportableRuntimeError, ShapeLoadError
+from .helper import get_query_helper_cls
+from .pytypes import GraphLike
 
 
 if TYPE_CHECKING:
     from pyshacl.shapes_graph import ShapesGraph
+
+module = sys.modules[__name__]
 
 
 class Shape(object):
@@ -194,7 +198,17 @@ class Shape(object):
             raise ShapeLoadError(
                 "A SHACL Shape must be a numeric literal.", "https://www.w3.org/TR/shacl-af/#rules-order"
             )
-        return Decimal(order_node.value)
+        if isinstance(order_node.value, Decimal):
+            order = order_node.value
+        elif isinstance(order_node.value, int):
+            order = Decimal(order_node.value)
+        elif isinstance(order_node.value, float):
+            order = Decimal(str(order_node.value))
+        else:
+            raise ShapeLoadError(
+                "A SHACL Shape must be a numeric literal.", "https://www.w3.org/TR/shacl-af/#rules-order"
+            )
+        return order
 
     def target_nodes(self):
         return self.sg.graph.objects(self.node, SH_targetNode)
@@ -224,9 +238,6 @@ class Shape(object):
             return self._path
         raise RuntimeError("property shape has no _path!")  # pragma: no cover
 
-    def parameters(self):
-        return (p for p, v in self.sg.predicate_objects(self.node) if p in ALL_CONSTRAINT_PARAMETERS)
-
     def target(self):
         target_nodes = self.target_nodes()
         target_classes = self.target_classes()
@@ -236,23 +247,56 @@ class Shape(object):
         return (target_nodes, target_classes, implicit_targets, target_objects_of, target_subjects_of)
 
     def advanced_target(self):
-        custom_targets = set(self.sg.graph.objects(self.node, SH_target))
+        custom_targets = set(self.sg.objects(self.node, SH_target))
         result_set = dict()
+        if self.sg.js_enabled:
+            use_JSTarget: Union[bool, Type] = True
+        else:
+            use_JSTarget = False
+
         for c in custom_targets:
             ct = dict()
-            is_types = set(self.sg.graph.objects(c, RDF_type))
-            is_target_type = False
-            parameters = set(self.sg.graph.objects(c, SH_parameter))
-            if SH_SPARQLTargetType in is_types or len(parameters) > 0:
-                is_target_type = True
-            ct['type'] = SH_SPARQLTargetType if is_target_type else SH_SPARQLTarget
-            selects = set(self.sg.graph.objects(c, SH_select))
-            if len(selects) < 1:
-                continue
-            ct['select'] = next(iter(selects))
-            qh = SPARQLQueryHelper(self, c, ct['select'], deactivated=self._deactivated)
-            ct['qh'] = qh
-            qh.collect_prefixes()
+            selects = list(self.sg.objects(c, SH_select))
+            has_select = len(selects) > 0
+            fn_names = list(self.sg.objects(c, SH_jsFunctionName))
+            has_fnname = len(fn_names) > 0
+            is_types = set(self.sg.objects(c, RDF_type))
+            if has_select or (SH_SPARQLTarget in is_types):
+                ct['type'] = SH_SPARQLTarget
+                SPARQLQueryHelper = get_query_helper_cls()
+                qh = SPARQLQueryHelper(self, c, selects[0], deactivated=self._deactivated)
+                qh.collect_prefixes()
+                ct['qh'] = qh
+            elif has_fnname or (SH_JSTarget in is_types):
+                if use_JSTarget:
+                    JST = getattr(module, "JSTarget", None)
+                    if not JST:
+                        # Lazy-import JS-Target to prevent RDFLib import error
+                        from pyshacl.extras.js.target import JSTarget as JST
+
+                        setattr(module, "JSTarget", JST)
+                    ct['type'] = SH_JSTarget
+                    ct['targeter'] = JST(self.sg, c)
+                else:
+                    #  Found JSTarget, but JS is not enabled in PySHACL. Ignore this target.
+                    pass
+            else:
+                found_tt = None
+                for t in is_types:
+                    try:
+                        found_tt = self.sg.get_shacl_target_type(t)
+                        break
+                    except LookupError:
+                        continue
+                if not found_tt:
+                    msg = "None of these types match a TargetType: {}".format(" ".join(is_types))
+                    raise ShapeLoadError(msg, "https://www.w3.org/TR/shacl-af/#SPARQLTargetType")
+                bound_tt = found_tt.bind(self, c)
+                ct['type'] = bound_tt.shacl_constraint_class()
+                if ct['type'] == SH_SPARQLTargetType:
+                    ct['qt'] = bound_tt
+                elif ct['type'] == SH_JSTargetType:
+                    ct['targeter'] = bound_tt
             result_set[c] = ct
         return result_set
 
@@ -299,18 +343,26 @@ class Shape(object):
         found_node_targets.update(found_target_object_of)
         if advanced_targets:
             for at_node, at in advanced_targets.items():
-                if at['type'] == SH_SPARQLTargetType:
-                    # SPARQLTargetType not supported yet
-                    continue
-                qh = at['qh']
-                c = qh.apply_prefixes(at['select'])
-                results = data_graph.query(c, initBindings=None)
-                if not results or len(results.bindings) < 1:
-                    continue
-                for r in results:
-                    t = r['this']
-                    found_node_targets.add(t)
-
+                if at['type'] == SH_SPARQLTarget:
+                    qh = at['qh']
+                    select = qh.apply_prefixes(qh.select_text)
+                    results = data_graph.query(select, initBindings=None)
+                    if not results or len(results.bindings) < 1:
+                        continue
+                    for r in results:
+                        t = r['this']
+                        found_node_targets.add(t)
+                elif at['type'] in (SH_JSTarget, SH_JSTargetType):
+                    results = at['targeter'].find_targets(data_graph)
+                    for r in results:
+                        found_node_targets.add(r)
+                else:
+                    results = at['qt'].find_targets(data_graph)
+                    if not results or len(results.bindings) < 1:
+                        continue
+                    for r in results:
+                        t = r['this']
+                        found_node_targets.add(t)
         return found_node_targets
 
     @classmethod
@@ -438,7 +490,7 @@ class Shape(object):
     def find_custom_constraints(self):
         applicable_custom_constraints = set()
         for c in self.sg.custom_constraints:
-            mandatory = c.mandatory_parameters
+            mandatory = (p for p in c.parameters if not p.optional)
             found_all_mandatory = True
             for mandatory_param in mandatory:
                 path = mandatory_param.path()
@@ -477,17 +529,36 @@ class Shape(object):
             return True, []
         if _evaluation_path is None:
             _evaluation_path = []
-        elif len(_evaluation_path) >= 28:  # 27 is the depth required to successfully do the meta-shacl test
+        elif len(_evaluation_path) >= 30:
+            # 27 is the depth required to successfully do the meta-shacl test on shacl.ttl
             path_str = "->".join((str(e) for e in _evaluation_path))
             raise ReportableRuntimeError("Evaluation path too deep!\n{}".format(path_str))
-        parameters = self.parameters()
+        # Lazy import here to avoid an import loop
+        CONSTRAINT_PARAMETERS, PARAMETER_MAP = getattr(module, 'CONSTRAINT_PARAMS', (None, None))
+        if not CONSTRAINT_PARAMETERS:
+            from .constraints import ALL_CONSTRAINT_PARAMETERS, CONSTRAINT_PARAMETERS_MAP
+
+            setattr(module, 'CONSTRAINT_PARAMS', (ALL_CONSTRAINT_PARAMETERS, CONSTRAINT_PARAMETERS_MAP))
+            CONSTRAINT_PARAMETERS = ALL_CONSTRAINT_PARAMETERS
+            PARAMETER_MAP = CONSTRAINT_PARAMETERS_MAP
+        if self.sg.js_enabled:
+            search_parameters = CONSTRAINT_PARAMETERS.copy()
+            constraint_map = PARAMETER_MAP.copy()
+            from pyshacl.extras.js.constraint import JSConstraint, SH_js
+
+            search_parameters.append(SH_js)
+            constraint_map[SH_js] = JSConstraint
+        else:
+            search_parameters = CONSTRAINT_PARAMETERS
+            constraint_map = PARAMETER_MAP
+        parameters = (p for p, v in self.sg.predicate_objects(self.node) if p in search_parameters)
         reports = []
         focus_value_nodes = self.value_nodes(target_graph, focus)
         non_conformant = False
         done_constraints = set()
         run_count = 0
         _evaluation_path.append(self)
-        constraint_components = [CONSTRAINT_PARAMETERS_MAP[p] for p in iter(parameters)]
+        constraint_components = [constraint_map[p] for p in iter(parameters)]
         for constraint_component in constraint_components:
             if constraint_component in done_constraints:
                 continue
@@ -519,7 +590,4 @@ class Shape(object):
             non_conformant = non_conformant or (not _is_conform)
             reports.extend(_r)
             run_count += 1
-        # TODO: Can these two lines be completely removed?
-        #  if run_count < 1:
-        #      raise RuntimeError("A SHACL Shape should have at least one parameter or attached property shape.")
         return (not non_conformant), reports
