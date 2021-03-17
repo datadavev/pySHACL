@@ -48,8 +48,8 @@ include = [
 
 [tool.poetry.dependencies]
 python = "^3.6"  # Compatible python versions must be declared here
-rdflib = "^5.0.0"
-rdflib-jsonld = "^0.5.0"
+rdflib = {git = "https://github.com/datadavev/rdflib.git"}
+rdflib-jsonld = {git = "https://github.com/datadavev/rdflib-jsonld.git"}
 owlrl = "^5.2.1"
 pyduktape2 = {version="^0.4.1", python=">=3.6", optional=true}
 flake8 = {version="^3.8.0", python=">=3.6", optional=true}
