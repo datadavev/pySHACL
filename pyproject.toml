@@ -48,7 +48,7 @@ include = [
 
 [tool.poetry.dependencies]
 python = "^3.6"  # Compatible python versions must be declared here
-rdflib = {git = "https://github.com/datadavev/rdflib.git#develop"}
+rdflib = {git = "https://github.com/datadavev/rdflib.git", rev = "develop"}
 rdflib-jsonld = {git = "https://github.com/datadavev/rdflib-jsonld.git"}
 owlrl = "^5.2.1"
 pyduktape2 = {version="^0.4.1", python=">=3.6", optional=true}
