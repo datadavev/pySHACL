@@ -8,15 +8,17 @@ a = Analysis(
             ['cli.py'],
             pathex=['.'],
             binaries=[
-                ('shacl-shacl.pickle','.')
+                ('assets/shacl.pickle','assets'),
+                ('assets/shacl-shacl.pickle','assets')
             ],
             datas=[
+                ('assets/shacl.ttl','assets'),
+                ('assets/shacl-shacl.ttl','assets')
             ],
             hiddenimports=[
                 'rdflib.plugins',
                 'rdflib',
                 'urllib3',
-                'rdflib_jsonld',
                 'win32com.gen_py',
                 'pkg_resources.py2_warn'
             ],

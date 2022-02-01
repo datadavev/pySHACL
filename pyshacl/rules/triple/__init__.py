@@ -1,22 +1,27 @@
 # -*- coding: utf-8 -*-
 import itertools
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple, cast
 
 import rdflib
 
-from pyshacl.consts import SH_object, SH_path, SH_predicate, SH_subject, SH_this
+from pyshacl.consts import SH_object, SH_predicate, SH_subject
+from pyshacl.errors import ReportableRuntimeError
+from pyshacl.helper.expression_helper import nodes_from_node_expression
 from pyshacl.rules.shacl_rule import SHACLRule
 
 
 if TYPE_CHECKING:
+    from rdflib.term import Node
+
+    from pyshacl.pytypes import GraphLike
     from pyshacl.shape import Shape
 
 
 class TripleRule(SHACLRule):
     __slots__ = ("s", "p", "o")
 
-    def __init__(self, shape: 'Shape', rule_node: 'rdflib.term.Identifier'):
+    def __init__(self, shape: 'Shape', rule_node: 'rdflib.term.Identifier', **kwargs):
         """
 
         :param shape:
@@ -24,7 +29,7 @@ class TripleRule(SHACLRule):
         :param rule_node:
         :type rule_node: rdflib.term.Identifier
         """
-        super(TripleRule, self).__init__(shape, rule_node)
+        super(TripleRule, self).__init__(shape, rule_node, **kwargs)
         my_subject_nodes = set(self.shape.sg.objects(self.node, SH_subject))
         if len(my_subject_nodes) < 1:
             raise RuntimeError("No sh:subject")
@@ -46,31 +51,36 @@ class TripleRule(SHACLRule):
             raise RuntimeError("Too many sh:object")
         self.o = next(iter(my_object_nodes))
 
-    def get_nodes_from_node_expression(self, expr, focus_node, data_graph):
-        if expr == SH_this:
-            return [focus_node]
-        elif isinstance(expr, (rdflib.URIRef, rdflib.Literal)):
-            return [expr]
-        elif isinstance(expr, rdflib.BNode):
-            path_nodes = set(self.shape.sg.objects(expr, SH_path))
-            if len(path_nodes) > 0:
-                path_results = []
-                for p in path_nodes:
-                    vals = self.shape.value_nodes_from_path(self.shape.sg, focus_node, p, data_graph)
-                    path_results.extend(vals)
-                return path_results
-            else:
-                raise NotImplementedError("Unsupported expression s, p, or o, in SHACL TripleRule")
-        else:
-            raise NotImplementedError("Unsupported expression s, p, or o, in SHACL TripleRule")
-
-    def apply(self, data_graph):
+    def apply(self, data_graph: 'GraphLike') -> int:
         focus_nodes = self.shape.focus_nodes(data_graph)  # uses target nodes to find focus nodes
         applicable_nodes = self.filter_conditions(focus_nodes, data_graph)
-        for a in applicable_nodes:
-            s_set = self.get_nodes_from_node_expression(self.s, a, data_graph)
-            p_set = self.get_nodes_from_node_expression(self.p, a, data_graph)
-            o_set = self.get_nodes_from_node_expression(self.o, a, data_graph)
-            new_triples = itertools.product(s_set, p_set, o_set)
-            for i in iter(new_triples):
-                data_graph.add(i)
+        all_added = 0
+        iterate_limit = 100
+        while True:
+            if iterate_limit < 1:
+                raise ReportableRuntimeError("sh:rule iteration exceeded iteration limit of 100.")
+            iterate_limit -= 1
+            added = 0
+            to_add = []
+            for a in applicable_nodes:
+                s_set = nodes_from_node_expression(self.s, a, data_graph, self.shape.sg)
+                p_set = nodes_from_node_expression(self.p, a, data_graph, self.shape.sg)
+                o_set = nodes_from_node_expression(self.o, a, data_graph, self.shape.sg)
+                new_triples = itertools.product(s_set, p_set, o_set)
+                this_added = False
+                for i in iter(new_triples):
+                    if not this_added and i not in data_graph:
+                        this_added = True
+                    to_add.append(i)
+                if this_added:
+                    added += 1
+            if added > 0:
+                for i in to_add:
+                    data_graph.add(cast(Tuple['Node', 'Node', 'Node'], i))
+                all_added += added
+                if self.iterate:
+                    continue  # Jump up to iterate
+                else:
+                    break  # Don't iterate
+            break
+        return all_added

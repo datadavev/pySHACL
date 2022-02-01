@@ -9,12 +9,12 @@ import rdflib
 from pyshacl.constraints.constraint_component import ConstraintComponent
 from pyshacl.consts import SH, SH_deactivated, SH_message, SH_select
 from pyshacl.errors import ConstraintLoadError, ValidationFailure
+from pyshacl.helper import get_query_helper_cls
 from pyshacl.pytypes import GraphLike
-from pyshacl.sparql_query_helper import SPARQLQueryHelper
 
 
-SH_sparql = SH.term('sparql')
-SH_SPARQLConstraintComponent = SH.term('SPARQLConstraintComponent')
+SH_sparql = SH.sparql
+SH_SPARQLConstraintComponent = SH.SPARQLConstraintComponent
 
 
 class SPARQLBasedConstraint(ConstraintComponent):
@@ -23,6 +23,8 @@ class SPARQLBasedConstraint(ConstraintComponent):
     Link:
     https://www.w3.org/TR/shacl/#sparql-constraints
     """
+
+    shacl_constraint_component = SH_SPARQLConstraintComponent
 
     def __init__(self, shape):
         super(SPARQLBasedConstraint, self).__init__(shape)
@@ -38,31 +40,32 @@ class SPARQLBasedConstraint(ConstraintComponent):
             select_node_list = set(sg.objects(s, SH_select))
             if len(select_node_list) < 1:
                 raise ConstraintLoadError(
-                    "SPARQLConstraintComponent value for sh:select must have " "at least one sh:select predicate.",
+                    "SPARQLConstraintComponent value for sh:select must have at least one sh:select predicate.",
                     "https://www.w3.org/TR/shacl/#SPARQLConstraintComponent",
                 )
             elif len(select_node_list) > 1:
                 raise ConstraintLoadError(
-                    "SPARQLConstraintComponent value for sh:select must have " "at most one sh:select predicate.",
+                    "SPARQLConstraintComponent value for sh:select must have at most one sh:select predicate.",
                     "https://www.w3.org/TR/shacl/#SPARQLConstraintComponent",
                 )
             select_node = next(iter(select_node_list))
             if not (isinstance(select_node, rdflib.Literal) and isinstance(select_node.value, str)):
                 raise ConstraintLoadError(
-                    "SPARQLConstraintComponent value for sh:select must be " "a Literal with type xsd:string.",
+                    "SPARQLConstraintComponent value for sh:select must be a Literal with type xsd:string.",
                     "https://www.w3.org/TR/shacl/#SPARQLConstraintComponent",
                 )
-            query_helper = SPARQLQueryHelper(self.shape, s, select_node.value)
             message_node_list = set(sg.objects(s, SH_message))
+            msgs = None
             if len(message_node_list) > 0:
                 message = next(iter(message_node_list))
                 if not (isinstance(message, rdflib.Literal) and isinstance(message.value, str)):
                     raise ConstraintLoadError(
-                        "SPARQLConstraintComponent value for sh:message must be " "a Literal with type xsd:string.",
+                        "SPARQLConstraintComponent value for sh:message must be a Literal with type xsd:string.",
                         "https://www.w3.org/TR/shacl/#SPARQLConstraintComponent",
                     )
-                query_helper.messages = message_node_list
+                msgs = message_node_list
             deactivated_node_list = set(sg.objects(s, SH_deactivated))
+            deact = False
             if len(deactivated_node_list) > 0:
                 deactivated = next(iter(deactivated_node_list))
                 if not (isinstance(deactivated, rdflib.Literal) and isinstance(deactivated.value, bool)):
@@ -71,7 +74,9 @@ class SPARQLBasedConstraint(ConstraintComponent):
                         "a Literal with type xsd:boolean.",
                         "https://www.w3.org/TR/shacl/#SPARQLConstraintComponent",
                     )
-                query_helper.deactivated = deactivated.value
+                deact = bool(deactivated.value)
+            SPARQLQueryHelper = get_query_helper_cls()
+            query_helper = SPARQLQueryHelper(self.shape, s, select_node.value, messages=msgs, deactivated=deact)
             query_helper.collect_prefixes()
             sparql_constraints.add(query_helper)
         self.sparql_constraints = sparql_constraints
@@ -83,10 +88,6 @@ class SPARQLBasedConstraint(ConstraintComponent):
     @classmethod
     def constraint_name(cls):
         return "SPARQLConstraintComponent"
-
-    @classmethod
-    def shacl_constraint_class(cls):
-        return SH_SPARQLConstraintComponent
 
     def evaluate(self, target_graph: GraphLike, focus_value_nodes: Dict, _evaluation_path: List):
         """
@@ -133,7 +134,9 @@ class SPARQLBasedConstraint(ConstraintComponent):
                     t, p, v = v
                     if v is None:
                         v = result_val
-                    rept = self.make_v_result(target_graph, t or f, value_node=v, result_path=p, **rept_kwargs)
+                    rept = self.make_v_result(
+                        target_graph, t or f, value_node=v, result_path=p, bound_vars=(t, p, v), **rept_kwargs
+                    )
                 else:
                     rept = self.make_v_result(target_graph, f, value_node=v, **rept_kwargs)
                 reports.append(rept)

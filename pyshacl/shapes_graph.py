@@ -1,23 +1,21 @@
 # -*- coding: utf-8 -*-
 import logging
+import warnings
 
 import rdflib
 
-from pyshacl.constraints.core.logical_constraints import SH_and, SH_not, SH_or, SH_xone
-from pyshacl.constraints.core.shape_based_constraints import SH_qualifiedValueShape
-from pyshacl.constraints.sparql.sparql_based_constraint_components import (
-    SH_ConstraintComponent,
-    SH_optional,
-    SH_parameter,
-    SPARQLConstraintComponent,
-)
-from pyshacl.consts import (
+from .constraints.constraint_component import CustomConstraintComponentFactory
+from .constraints.core.logical_constraints import SH_and, SH_not, SH_or, SH_xone
+from .constraints.core.shape_based_constraints import SH_qualifiedValueShape
+from .consts import (
+    SH,
     OWL_Class,
     OWL_DatatypeProperty,
     RDF_Property,
     RDF_type,
     RDFS_Class,
     RDFS_subClassOf,
+    SH_ConstraintComponent,
     SH_node,
     SH_NodeShape,
     SH_path,
@@ -28,8 +26,8 @@ from pyshacl.consts import (
     SH_targetObjectsOf,
     SH_targetSubjectsOf,
 )
-from pyshacl.errors import ConstraintLoadError, ShapeLoadError
-from pyshacl.shape import Shape
+from .errors import ShapeLoadError
+from .shape import Shape
 
 
 class ShapesGraph(object):
@@ -53,7 +51,17 @@ class ShapesGraph(object):
         self._node_shape_cache = {}
         self._shapes = None
         self._custom_constraints = None
+        self._shacl_functions = {}
+        self._shacl_target_types = {}
+        self._use_js = False
         self._add_system_triples()
+
+    def enable_js(self):
+        self._use_js = True
+
+    @property
+    def js_enabled(self):
+        return bool(self._use_js)
 
     def _add_system_triples(self):
         if isinstance(self.graph, (rdflib.Dataset, rdflib.ConjunctiveGraph)):
@@ -96,54 +104,54 @@ class ShapesGraph(object):
             constraint_component_set.update(subclass_components)
         components = set()
         for c in iter(constraint_component_set):
-            optional_params = []
-            mandatory_params = []
-            param_nodes = set(g.objects(c, SH_parameter))
-            if len(param_nodes) < 1:
-                # TODO:coverage: we don't have any tests for invalid constraints
-                raise ConstraintLoadError(
-                    "A sh:ConstraintComponent must have at least one value for sh:parameter",
-                    "https://www.w3.org/TR/shacl/#constraint-components-parameters",
-                )
-            for p in iter(param_nodes):
-                path_nodes = set(g.objects(p, SH_path))
-                if len(path_nodes) < 1:
-                    # TODO:coverage: we don't have any tests for invalid constraints
-                    raise ConstraintLoadError(
-                        "A sh:ConstraintComponent parameter value must have at least one value for sh:path",
-                        "https://www.w3.org/TR/shacl/#constraint-components-parameters",
-                    )
-                elif len(path_nodes) > 1:
-                    # TODO:coverage: we don't have any tests for invalid constraints
-                    raise ConstraintLoadError(
-                        "A sh:ConstraintComponent parameter value must have at most one value for sh:path",
-                        "https://www.w3.org/TR/shacl/#constraint-components-parameters",
-                    )
-                path = next(iter(path_nodes))
-                is_optional = False
-                optional = set(g.objects(p, SH_optional))
-                for o in iter(optional):
-                    if not (isinstance(o, rdflib.Literal) and isinstance(o.value, bool)):
-                        # TODO:coverage: we don't have any tests for invalid constraints
-                        raise ConstraintLoadError(
-                            "A sh:Parameter value for sh:optional must be a valid RDF Literal of type xsd:boolean.",
-                            "https://www.w3.org/TR/shacl/#constraint-components-parameters",
-                        )
-                    is_optional = o.value
-                parameter = Shape(self, p=True, node=p, path=path, logger=self.logger)
-                if is_optional:
-                    optional_params.append(parameter)
-                else:
-                    mandatory_params.append(parameter)
-            if len(mandatory_params) < 1:
-                # TODO:coverage: we don't have any tests for invalid constraints
-                raise ConstraintLoadError(
-                    "A sh:ConstraintComponent must have at least one non-optional parameter.",
-                    "https://www.w3.org/TR/shacl/#constraint-components-parameters",
-                )
-            component = SPARQLConstraintComponent(self, c, mandatory_params, optional_params)
-            components.add(component)
+            if c.startswith(SH):
+                # ignore all constraint components from shacl.ttl, these are all hardcoded into PySHACL
+                continue
+            components.add(CustomConstraintComponentFactory(self, c))
         return components
+
+    def add_shacl_function(self, uri, function, optionals):
+        uri = str(uri)
+        if uri in self._shacl_functions:
+            warnings.warn(Warning("SHACLFunction {} is already registered.".format(uri)))
+        else:
+            self._shacl_functions[uri] = (function, optionals)
+
+    def get_shacl_function(self, uri):
+        uri = str(uri)
+        try:
+            f = self._shacl_functions[uri]
+        except LookupError:
+            raise KeyError("SHACLFunction {} not found.".format(uri))
+        return f
+
+    def remove_shacl_function(self, uri, function):
+        uri = str(uri)
+        try:
+            f, _ = self.get_shacl_function(uri)
+            if f != function:
+                warnings.warn(
+                    Warning("Cannot remove a different function than what was registered for {}.".format(uri))
+                )
+                return
+        except KeyError:
+            return  # Not registered
+        del self._shacl_functions[uri]
+
+    def add_shacl_target_type(self, uri, tt):
+        uri = str(uri)
+        if uri in self._shacl_target_types:
+            warnings.warn(Warning("SHACL TargetType {} is already registered.".format(uri)))
+        else:
+            self._shacl_target_types[uri] = tt
+
+    def get_shacl_target_type(self, uri):
+        uri = str(uri)
+        try:
+            f = self._shacl_target_types[uri]
+        except LookupError:
+            raise KeyError("SHACL TargetType {} not found.".format(uri))
+        return f
 
     @property
     def shapes(self):
@@ -171,8 +179,8 @@ class ShapesGraph(object):
 
     def _build_node_shape_cache(self):
         """
-        :returns: [Shape]
-        :rtype: list(pyshacl.shape.Shape)
+        :returns: None
+        :rtype: NoneType
         """
         g = self.graph
         defined_node_shapes = set(g.subjects(RDF_type, SH_NodeShape))
