@@ -19,8 +19,8 @@ if typing.TYPE_CHECKING:
     from ..shapes_graph import ShapesGraph
 
 
-SH_returnType = SH.term('returnType')
-SH_optional = SH.term('optional')
+SH_returnType = SH.returnType
+SH_optional = SH.optional
 
 
 class SHACLFunction(object):
@@ -79,7 +79,7 @@ class SHACLFunction(object):
 
     def execute(self, g, *args):
         raise NotImplementedError(
-            "SHACLFunction cannot be executed by itself. " "It needs to be a SPARQLFunction or something similar."
+            "SHACLFunction cannot be executed by itself. It needs to be a SPARQLFunction or something similar."
         )
 
 
@@ -150,7 +150,7 @@ class SPARQLFunction(SHACLFunction):
     def execute_select(self, g: 'GraphLike', init_bindings: Dict):
         s = self._qh.apply_prefixes(self.select)
         results = g.query(s, initBindings=init_bindings)
-        if results.type != "SELECT":
+        if results.type != "SELECT" or results.vars is None:
             raise ReportableRuntimeError("Was expecting an SELECT response from the Select query.")
         rvars = len(results.vars)
         rbindings = len(results.bindings)

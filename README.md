@@ -3,14 +3,21 @@
 # pySHACL
 A Python validator for SHACL.
 
-[![Build Status](https://travis-ci.org/RDFLib/pySHACL.svg?branch=master)](https://travis-ci.org/RDFLib/pySHACL) [![Coverage Status](https://coveralls.io/repos/github/RDFLib/pySHACL/badge.svg?branch=master)](https://coveralls.io/github/RDFLib/pySHACL?branch=master) [![PyPI version](https://badge.fury.io/py/pyshacl.svg)](https://badge.fury.io/py/pyshacl) [![Code Style Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Build Status](https://drone.rdflib.ashs.dev/api/badges/RDFLib/pySHACL/status.svg)](https://drone.rdflib.ashs.dev/RDFLib/pySHACL)
 
-[![Downloads](https://pepy.tech/badge/pyshacl)](https://pepy.tech/project/pyshacl) [![Downloads](https://pepy.tech/badge/pyshacl/month)](https://pepy.tech/project/pyshacl/month) [![Downloads](https://pepy.tech/badge/pyshacl/week)](https://pepy.tech/project/pyshacl/week)
+[![DOI](https://zenodo.org/badge/147505799.svg)](https://zenodo.org/badge/latestdoi/147505799) [![Downloads](https://pepy.tech/badge/pyshacl)](https://pepy.tech/project/pyshacl) [![Downloads](https://pepy.tech/badge/pyshacl/month)](https://pepy.tech/project/pyshacl/month) [![Downloads](https://pepy.tech/badge/pyshacl/week)](https://pepy.tech/project/pyshacl/week)
 
 This is a pure Python module which allows for the validation of [RDF](https://www.w3.org/2001/sw/wiki/RDF) graphs against Shapes Constraint Language ([SHACL](https://www.w3.org/TR/shacl/)) graphs. This module uses the [rdflib](https://github.com/RDFLib/rdflib) Python library for working with RDF and is dependent on the [OWL-RL](https://github.com/RDFLib/OWL-RL) Python module for [OWL2 RL Profile](https://www.w3.org/TR/owl2-overview/#ref-owl-2-profiles) based expansion of data graphs.
 
 This module is developed to adhere to the SHACL Recommendation:
 > Holger Knublauch; Dimitris Kontokostas. *Shapes Constraint Language (SHACL)*. 20 July 2017. W3C Recommendation. URL: <https://www.w3.org/TR/shacl/> ED: <https://w3c.github.io/data-shapes/shacl/>
+
+# Community for Help and Support
+The SHACL community has a discord server for discussion of topics around SHACL and the SHACL specification.
+
+[Use this invitation link: https://discord.gg/RTbGfJqdKB to join the server](https://discord.gg/RTbGfJqdKB)
+
+There is a \#pyshacl channel in which discussion around this python library can held, and you can ask for general pyshacl help too.
 
 ## Installation
 Install with PIP (Using the Python3 pip installer `pip3`)
@@ -56,7 +63,7 @@ Full CLI Usage options:
 $ pyshacl -h
 $ python3 -m pyshacl -h
 usage: pyshacl [-h] [-s [SHACL]] [-e [ONT]] [-i {none,rdfs,owlrl,both}] [-m]
-               [--imports] [--abort] [-a] [-j] [-d] [-f {human,turtle,xml,json-ld,nt,n3}]
+               [--imports] [--abort] [-a] [-j] [-d] [-f {human,table,turtle,xml,json-ld,nt,n3}]
                [-df {auto,turtle,xml,json-ld,nt,n3}]
                [-sf {auto,turtle,xml,json-ld,nt,n3}]
                [-ef {auto,turtle,xml,json-ld,nt,n3}] [-V] [-o [OUTPUT]]
@@ -72,18 +79,18 @@ optional arguments:
   -s [SHACL], --shacl [SHACL]
                         A file containing the SHACL Shapes Graph.
   -e [ONT], --ont-graph [ONT]
-                        A file path or URL to a docucument containing extra
+                        A file path or URL to a document containing extra
                         ontological information to mix into the data graph.
   -i {none,rdfs,owlrl,both}, --inference {none,rdfs,owlrl,both}
                         Choose a type of inferencing to run against the Data
                         Graph before validating.
   -m, --metashacl       Validate the SHACL Shapes graph against the shacl-
-                        shacl Shapes Graph before before validating the Data
-                        Graph.
+                        shacl Shapes Graph before validating the Data Graph.
   --imports             Allow import of sub-graphs defined in statements with
                         owl:imports.
   -a, --advanced        Enable support for SHACL Advanced Features.
   -j, --js              Enable support for SHACL-JS Features.
+  -it, --iterate-rules  Interate SHACL Rules until steady state is found (only available in Advanced Mode)
   --abort               Abort on first error.
   -d, --debug           Output additional runtime messages, including violations that didn\'t
                         lead to non-conformance.
@@ -112,7 +119,8 @@ r = validate(data_graph,
       shacl_graph=sg,
       ont_graph=og,
       inference='rdfs',
-      abort_on_error=False,
+      abort_on_first=False,
+      allow_warnings=False,
       meta_shacl=False,
       advanced=False,
       js=False,
@@ -126,16 +134,18 @@ Where:
 * `ont_graph` is an rdflib `Graph` object or file path or Web URL a graph containing extra ontological information, or None if not required.
 * `inference` is a Python string value to indicate whether or not to perform OWL inferencing expansion of the `data_graph` before validation.
 Options are 'rdfs', 'owlrl', 'both', or 'none'. The default is 'none'.
-* `abort_on_error` (optional) a Python `bool` value to indicate whether or not the program should abort after encountering a validation error or to continue. Default is to continue.
-* `meta_shacl` (optional) a Python `bool` value to indicate whether or not the program should enable the Meta-SHACL feature. Default is False.
-* `advanced`: (optional) a Python `bool` value to enable SHACL Advanced Features
-* `js`: (optional) a Python `bool` value to enable SHACL-JS Features (if `pyshacl[js]` is installed)
-* `debug` (optional) a Python `bool` value to indicate whether or not the program should emit debugging output text, including violations that didn't lead to non-conformance overall. So when debug is True don't judge conformance by absense of violation messages. Default is False.
+* `abort_on_first` (optional) `bool` value to indicate whether or not the program should abort after encountering the first validation failure or to continue. Default is to continue.
+* `allow_warnings` (optional) `bool` value, Shapes marked with severity of Warning or Info will not cause result to be invalid. 
+* `meta_shacl` (optional) `bool` value to indicate whether or not the program should enable the Meta-SHACL feature. Default is False.
+* `advanced`: (optional) `bool` value to enable SHACL Advanced Features
+* `js`: (optional) `bool` value to enable SHACL-JS Features (if `pyshacl[js]` is installed)
+* `debug` (optional) `bool` value to indicate whether or not the program should emit debugging output text, including violations that didn't lead to non-conformance overall. So when debug is True don't judge conformance by absense of violation messages. Default is False.
 
-Some other optional keyword variables available available on the `validate` function:
+Some other optional keyword variables available on the `validate` function:
 * `data_graph_format`: Override the format detection for the given data graph source file.
 * `shacl_graph_format`: Override the format detection for the given shacl graph source file.
 * `ont_graph_format`: Override the format detection for the given extra ontology graph source file.
+* `iterate_rules`: Interate SHACL Rules until steady state is found (only works with advanced mode).
 * `do_owl_imports`: Enable the feature to allow the import of subgraphs using `owl:imports` for the shapes graph and the ontology graph. Note, you explicitly cannot use this on the target data graph.
 * `serialize_report_graph`: Convert the report results_graph into a serialised representation (for example, 'turtle')
 * `check_dash_result`: Check the validation result against the given expected DASH test suite result.
@@ -197,7 +207,7 @@ See above for the pySHACL command line util usage instructions.
 
 
 ## Compatibility
-PySHACL is a Python3 library. For best compatibility use Python v3.6 or greater. Python3 v3.5 or below is _**not supported**_ and this library _**does not work**_ on Python v2.7.x or below.
+PySHACL is a Python3 library. For best compatibility use Python v3.7 or greater. Python3 v3.6 or below is _**not supported**_ and this library _**does not work**_ on Python v2.7.x or below.
 
 PySHACL is now a PEP518 & PEP517 project, it uses `pyproject.toml` and `poetry` to manage dependencies, build and install.
 
@@ -224,6 +234,9 @@ This repository is licensed under Apache License, Version 2.0. See the [LICENSE 
 ## Contributors
 See the [CONTRIBUTORS file](https://github.com/RDFLib/pySHACL/blob/master/CONTRIBUTORS.md).
 
+
+## Citation
+DOI: [10.5281/zenodo.4750840](https://doi.org/10.5281/zenodo.4750840) (For all versions/latest version)
 
 ## Contacts
 Project Lead:

@@ -5,6 +5,9 @@ import argparse
 import os
 import sys
 
+from prettytable import PrettyTable
+from rdflib.namespace import SH
+
 from pyshacl import __version__, validate
 from pyshacl.errors import ReportableRuntimeError, ValidationFailure
 
@@ -33,7 +36,7 @@ parser.add_argument(
     dest='ont',
     action='store',
     nargs='?',
-    help='A file path or URL to a docucument containing extra ontological information to mix into ' 'the data graph.',
+    help='A file path or URL to a document containing extra ontological information to mix into ' 'the data graph.',
 )
 parser.add_argument(
     '-i',
@@ -50,10 +53,10 @@ parser.add_argument(
     dest='metashacl',
     action='store_true',
     default=False,
-    help='Validate the SHACL Shapes graph against the shacl-shacl '
-    'Shapes Graph before before validating the Data Graph.',
+    help='Validate the SHACL Shapes graph against the shacl-shacl Shapes Graph before validating the Data Graph.',
 )
 parser.add_argument(
+    '-im',
     '--imports',
     dest='imports',
     action='store_true',
@@ -76,7 +79,23 @@ parser.add_argument(
     default=False,
     help='Enable features from the SHACL-JS Specification.',
 )
-parser.add_argument('--abort', dest='abort', action='store_true', default=False, help='Abort on first error.')
+parser.add_argument(
+    '-it',
+    '--iterate-rules',
+    dest='iterate_rules',
+    action='store_true',
+    default=False,
+    help="Run Shape's SHACL Rules iteratively until the data_graph reaches a steady state.",
+)
+parser.add_argument('--abort', dest='abort', action='store_true', default=False, help='Abort on first invalid data.')
+parser.add_argument(
+    '-w',
+    '--allow-warnings',
+    dest='allow_warnings',
+    action='store_true',
+    default=False,
+    help='Shapes marked with severity of Warning or Info will not cause result to be invalid.',
+)
 parser.add_argument(
     '-d', '--debug', dest='debug', action='store_true', default=False, help='Output additional runtime messages.'
 )
@@ -87,7 +106,7 @@ parser.add_argument(
     action='store',
     help='Choose an output format. Default is \"human\".',
     default='human',
-    choices=('human', 'turtle', 'xml', 'json-ld', 'nt', 'n3'),
+    choices=('human', 'table', 'turtle', 'xml', 'json-ld', 'nt', 'n3'),
 )
 parser.add_argument(
     '-df',
@@ -139,7 +158,7 @@ def main():
         validator_kwargs['shacl_graph'] = args.shacl
     if args.ont is not None:
         validator_kwargs['ont_graph'] = args.ont
-    if args.format != 'human':
+    if args.format not in ['human', 'table']:
         validator_kwargs['serialize_report_graph'] = args.format
     if args.inference != 'none':
         validator_kwargs['inference'] = args.inference
@@ -151,8 +170,15 @@ def main():
         validator_kwargs['advanced'] = True
     if args.js:
         validator_kwargs['js'] = True
+    if args.iterate_rules:
+        if not args.advanced:
+            sys.stderr.write("Iterate-Rules option only works when you enable Advanced Mode.\n")
+        else:
+            validator_kwargs['iterate_rules'] = True
     if args.abort:
-        validator_kwargs['abort_on_error'] = True
+        validator_kwargs['abort_on_first'] = True
+    if args.allow_warnings:
+        validator_kwargs['allow_warnings'] = True
     if args.shacl_file_format:
         f = args.shacl_file_format
         if f != "auto":
@@ -188,11 +214,53 @@ def main():
         import traceback
 
         traceback.print_tb(re.__traceback__)
-        sys.stderr.write("\n\nValidator encountered a Runtime Error. Please report this to the PySHACL issue tracker.")
+        sys.stderr.write(
+            "\n\nValidator encountered a Runtime Error. Please report this to the PySHACL issue tracker.\n"
+        )
         sys.exit(2)
 
     if args.format == 'human':
         args.output.write(v_text)
+    elif args.format == 'table':
+        t1 = PrettyTable()
+        t1.field_names = ["Conforms"]
+        t1.align = "c"
+        t1.add_row([is_conform])
+        args.output.write(str(t1))
+        args.output.write('\n\n')
+
+        def col_widther(s, w):
+            """Split strings to a given width for table"""
+            s2 = []
+            i = 0
+            while i < len(s):
+                s2.append(s[i : i + w])
+                i += w
+            return '\n'.join(s2)
+
+        if not is_conform:
+            t2 = PrettyTable()
+            t2.field_names = ['No.', 'Severity', 'Focus Node', 'Result Path', 'Message', 'Component', 'Shape', 'Value']
+            t2.align = "l"
+
+            for i, o in enumerate(v_graph.objects(None, SH.result)):
+                r = {}
+                for o2 in v_graph.predicate_objects(o):
+                    r[o2[0]] = str(col_widther(o2[1].replace(f'{SH}', ''), 25))  # max col width 30 chars
+                t2.add_row(
+                    [
+                        i + 1,
+                        r[SH.resultSeverity],
+                        r[SH.focusNode],
+                        r[SH.resultPath] if r.get(SH.resultPath) is not None else '-',
+                        r[SH.resultMessage],
+                        r[SH.sourceConstraintComponent],
+                        r[SH.sourceShape],
+                        r[SH.value] if r.get(SH.value) is not None else '-',
+                    ]
+                )
+                t2.add_row(['', '', '', '', '', '', '', ''])
+            args.output.write(str(t2))
     else:
         if isinstance(v_graph, bytes):
             v_graph = v_graph.decode('utf-8')

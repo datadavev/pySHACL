@@ -8,6 +8,8 @@ import pkg_resources
 from pkg_resources import DistributionNotFound, UnknownExtra
 
 
+# In dev mode, the extras-loader doesn't check if extension is installed before loading it.
+# This is useful when testing, when we're working on a codebase of a library that is not yet installed.
 dev_mode = False
 
 

@@ -1,7 +1,28 @@
 # -*- coding: utf-8 -*-
-from owlrl.OWL import DataRange, OWLClass, Thing, equivalentClass
+try:
+    from owlrl import OWL
+
+    if isinstance(OWL, str):
+        raise ImportError(OWL)
+except ImportError:
+    try:
+        from rdflib.namespace import OWL
+    except ImportError:
+        from pyshacl.consts import OWL
+
+
+try:
+    from owlrl import RDFS
+
+    if isinstance(RDFS, str):
+        raise ImportError(RDFS)
+except ImportError:
+    try:
+        from rdflib.namespace import RDFS
+    except ImportError:
+        from pyshacl.consts import RDFS
+
 from owlrl.OWLRL import OWLRL_Semantics
-from owlrl.RDFS import Class, Datatype, Resource
 from owlrl.RDFSClosure import RDFS_Semantics as OrigRDFSSemantics
 
 
@@ -23,9 +44,9 @@ class CustomRDFSOWLRLSemantics(CustomRDFSSemantics, OWLRL_Semantics):
     """
 
     full_binding_triples = [
-        (Thing, equivalentClass, Resource),
-        (Class, equivalentClass, OWLClass),
-        (DataRange, equivalentClass, Datatype),
+        (OWL.Thing, OWL.equivalentClass, RDFS.Resource),
+        (RDFS.Class, OWL.equivalentClass, OWL.Class),
+        (OWL.DataRange, OWL.equivalentClass, RDFS.Datatype),
     ]
 
     def __init__(self, graph, axioms, daxioms, rdfs=True):
