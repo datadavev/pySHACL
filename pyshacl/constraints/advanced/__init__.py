@@ -5,7 +5,6 @@ SHACL-AF Advanced Constraints
 https://www.w3.org/TR/shacl-af/#ExpressionConstraintComponent
 """
 import typing
-
 from typing import Dict, List
 
 from rdflib import Literal
@@ -16,7 +15,6 @@ from pyshacl.errors import ConstraintLoadError
 from pyshacl.helper.expression_helper import nodes_from_node_expression
 from pyshacl.pytypes import GraphLike
 
-
 SH_expression = SH.expression
 SH_ExpressionConstraintComponent = SH.ExpressionConstraintComponent
 
@@ -25,7 +23,6 @@ if typing.TYPE_CHECKING:
 
 
 class ExpressionConstraint(ConstraintComponent):
-
     shacl_constraint_component = SH_ExpressionConstraintComponent
 
     def __init__(self, shape: 'Shape'):

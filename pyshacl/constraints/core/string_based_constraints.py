@@ -3,17 +3,19 @@
 https://www.w3.org/TR/shacl/#core-components-string
 """
 import re
-
 from typing import Dict, List
 
 import rdflib
+from rdflib.namespace import XSD
 
 from pyshacl.constraints.constraint_component import ConstraintComponent
-from pyshacl.consts import SH
+from pyshacl.consts import RDF, SH, XSD_WHOLE_INTEGERS
 from pyshacl.errors import ConstraintLoadError, ReportableRuntimeError
 from pyshacl.pytypes import GraphLike
 from pyshacl.rdfutil import stringify_node
 
+RDF_langString = RDF.langString
+XSD_string = XSD.string
 
 SH_PatternConstraintComponent = SH.PatternConstraintComponent
 SH_MinLengthConstraintComponent = SH.MinLengthConstraintComponent
@@ -33,7 +35,7 @@ class StringBasedConstraintBase(ConstraintComponent):
     https://www.w3.org/TR/shacl/#core-components-string
     """
 
-    shacl_constraint_component = NotImplemented
+    shacl_constraint_component = rdflib.URIRef("urn:notimplemented")
 
     def __init__(self, shape):
         super(StringBasedConstraintBase, self).__init__(shape)
@@ -51,7 +53,10 @@ class StringBasedConstraintBase(ConstraintComponent):
     @classmethod
     def value_node_to_string(cls, v):
         if isinstance(v, rdflib.Literal):
-            v_string = str(v.value)
+            if v.value is not None and (v.datatype in (None, RDF_langString, XSD_string)):
+                v_string = str(v.value)
+            else:
+                v_string = str(v)
         elif isinstance(v, rdflib.URIRef):
             v_string = str(v)
         else:
@@ -104,6 +109,23 @@ class MinLengthConstraintComponent(StringBasedConstraintBase):
                 "MinLengthConstraintComponent must have at most one sh:minLength predicate.",
                 "https://www.w3.org/TR/shacl/#MinLengthConstraintComponent",
             )
+        for s_r in patterns_found:
+            if (
+                (not isinstance(s_r, rdflib.Literal))
+                or getattr(s_r, "ill_typed", False)
+                or s_r.datatype is None
+                or s_r.datatype not in XSD_WHOLE_INTEGERS
+            ):
+                raise ConstraintLoadError(
+                    "sh:minLength value must be a literal value with an integer.",
+                    "https://www.w3.org/TR/shacl/#MinLengthConstraintComponent",
+                )
+            elif s_r.datatype in (XSD.negativeInteger, XSD.nonPositiveInteger) or s_r.value < 0:
+                raise ConstraintLoadError(
+                    "sh:minLength value must be a positive integer.",
+                    "https://www.w3.org/TR/shacl/#MinLengthConstraintComponent",
+                )
+
         self.string_rules = patterns_found
 
     @classmethod
@@ -122,7 +144,7 @@ class MinLengthConstraintComponent(StringBasedConstraintBase):
         reports = []
         non_conformant = False
         assert isinstance(r, rdflib.Literal)
-        min_len = int(r.value)
+        min_len = r.value
         if min_len < 0:
             raise ReportableRuntimeError("Minimum length cannot be less than zero!")
         for f, value_nodes in f_v_dict.items():
@@ -168,6 +190,22 @@ class MaxLengthConstraintComponent(StringBasedConstraintBase):
                 "MaxLengthConstraintComponent must have at most one sh:maxLength predicate.",
                 "https://www.w3.org/TR/shacl/#MaxLengthConstraintComponent",
             )
+        for s_r in patterns_found:
+            if (
+                (not isinstance(s_r, rdflib.Literal))
+                or getattr(s_r, "ill_typed", False)
+                or s_r.datatype is None
+                or s_r.datatype not in XSD_WHOLE_INTEGERS
+            ):
+                raise ConstraintLoadError(
+                    "sh:maxLength value must be a literal value with an integer.",
+                    "https://www.w3.org/TR/shacl/#MaxLengthConstraintComponent",
+                )
+            elif s_r.datatype in (XSD.negativeInteger, XSD.nonPositiveInteger) or s_r.value < 0:
+                raise ConstraintLoadError(
+                    "sh:maxLength value must be a positive integer.",
+                    "https://www.w3.org/TR/shacl/#MaxLengthConstraintComponent",
+                )
         self.string_rules = patterns_found
 
     @classmethod
@@ -186,7 +224,7 @@ class MaxLengthConstraintComponent(StringBasedConstraintBase):
         reports = []
         non_conformant = False
         assert isinstance(r, rdflib.Literal)
-        max_len = int(r.value)
+        max_len = r.value
         if max_len < 0:
             raise ReportableRuntimeError("Maximum length cannot be less than zero!")
         for f, value_nodes in f_v_dict.items():

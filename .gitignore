@@ -377,6 +377,7 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+.ruff_cache/
 
 # Translations
 *.mo
@@ -414,7 +415,8 @@ celerybeat-schedule
 
 # Environments
 .env
-.venv
+.venv/
+.venv38/
 env/
 venv/
 ENV/
@@ -523,3 +525,4 @@ fabric.properties
 .idea/httpRequests
 
 .directory
+snyk-linux

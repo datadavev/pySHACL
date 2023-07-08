@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 #
 import typing
-
 from typing import Dict, List
 
 from rdflib import XSD, Literal
@@ -12,7 +11,6 @@ from ..consts import SH, RDFS_comment, SH_ask, SH_parameter, SH_select
 from ..errors import ConstraintLoadError, ReportableRuntimeError
 from ..helper import get_query_helper_cls
 from ..parameter import SHACLParameter
-
 
 if typing.TYPE_CHECKING:
     from ..pytypes import GraphLike
@@ -38,7 +36,7 @@ class SHACLFunction(object):
         self.node = fn_node
         self.sg = sg
         params = list(sg.objects(fn_node, SH_parameter))
-        self.parameters = [SHACLParameter(sg, p) for p in params]  # type: List[SHACLParameter]
+        self.parameters: List[SHACLParameter] = [SHACLParameter(sg, p) for p in params]
         self.comments = set(sg.objects(fn_node, RDFS_comment))
         rtypes = list(sg.objects(fn_node, SH_returnType))
         if len(rtypes) < 1:

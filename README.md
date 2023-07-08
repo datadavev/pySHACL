@@ -17,7 +17,7 @@ The SHACL community has a discord server for discussion of topics around SHACL a
 
 [Use this invitation link: https://discord.gg/RTbGfJqdKB to join the server](https://discord.gg/RTbGfJqdKB)
 
-There is a \#pyshacl channel in which discussion around this python library can held, and you can ask for general pyshacl help too.
+There is a \#pyshacl channel for discussion of this python library, and you can ask for general SHACL help too.
 
 ## Installation
 Install with PIP (Using the Python3 pip installer `pip3`)
@@ -63,38 +63,48 @@ Full CLI Usage options:
 $ pyshacl -h
 $ python3 -m pyshacl -h
 usage: pyshacl [-h] [-s [SHACL]] [-e [ONT]] [-i {none,rdfs,owlrl,both}] [-m]
-               [--imports] [--abort] [-a] [-j] [-d] [-f {human,table,turtle,xml,json-ld,nt,n3}]
+               [-im] [-a] [-j] [-it] [--abort] [--allow-info] [-w] [-d]
+               [-f {human,table,turtle,xml,json-ld,nt,n3}]
                [-df {auto,turtle,xml,json-ld,nt,n3}]
                [-sf {auto,turtle,xml,json-ld,nt,n3}]
                [-ef {auto,turtle,xml,json-ld,nt,n3}] [-V] [-o [OUTPUT]]
                DataGraph
 
-Run the pySHACL validator from the command line.
+PySHACL 0.23.0 command line tool.
 
 positional arguments:
   DataGraph             The file containing the Target Data Graph.
 
 optional arguments:
+  --server              Ignore all the rest of the options, start the HTTP Server.
   -h, --help            show this help message and exit
   -s [SHACL], --shacl [SHACL]
                         A file containing the SHACL Shapes Graph.
   -e [ONT], --ont-graph [ONT]
                         A file path or URL to a document containing extra
-                        ontological information to mix into the data graph.
+                        ontological information. RDFS and OWL definitions from this 
+                        are used to inoculate the DataGraph.
   -i {none,rdfs,owlrl,both}, --inference {none,rdfs,owlrl,both}
                         Choose a type of inferencing to run against the Data
                         Graph before validating.
   -m, --metashacl       Validate the SHACL Shapes graph against the shacl-
                         shacl Shapes Graph before validating the Data Graph.
-  --imports             Allow import of sub-graphs defined in statements with
+  -im, --imports        Allow import of sub-graphs defined in statements with
                         owl:imports.
-  -a, --advanced        Enable support for SHACL Advanced Features.
-  -j, --js              Enable support for SHACL-JS Features.
-  -it, --iterate-rules  Interate SHACL Rules until steady state is found (only available in Advanced Mode)
-  --abort               Abort on first error.
-  -d, --debug           Output additional runtime messages, including violations that didn\'t
-                        lead to non-conformance.
-  -f {human,turtle,xml,json-ld,nt,n3}, --format {human,turtle,xml,json-ld,nt,n3}
+  -a, --advanced        Enable features from the SHACL Advanced Features
+                        specification.
+  -j, --js              Enable features from the SHACL-JS Specification.
+  -it, --iterate-rules  Run Shape's SHACL Rules iteratively until the
+                        data_graph reaches a steady state.
+  --abort               Abort on first invalid data.
+  --allow-info, --allow-infos
+                        Shapes marked with severity of Info will not cause
+                        result to be invalid.
+  -w, --allow-warning, --allow-warnings
+                        Shapes marked with severity of Warning or Info will
+                        not cause result to be invalid.
+  -d, --debug           Output additional runtime messages.
+  -f {human,table,turtle,xml,json-ld,nt,n3}, --format {human,table,turtle,xml,json-ld,nt,n3}
                         Choose an output format. Default is "human".
   -df {auto,turtle,xml,json-ld,nt,n3}, --data-file-format {auto,turtle,xml,json-ld,nt,n3}
                         Explicitly state the RDF File format of the input
@@ -105,7 +115,7 @@ optional arguments:
   -ef {auto,turtle,xml,json-ld,nt,n3}, --ont-file-format {auto,turtle,xml,json-ld,nt,n3}
                         Explicitly state the RDF File format of the extra
                         ontology file. Default="auto".
-  -V, --version         Print the PySHACL version and exit.
+  -V, --version         Show PySHACL version and exit.
   -o [OUTPUT], --output [OUTPUT]
                         Send output to a file (defaults to stdout).
 ```
@@ -120,6 +130,7 @@ r = validate(data_graph,
       ont_graph=og,
       inference='rdfs',
       abort_on_first=False,
+      allow_infos=False,
       allow_warnings=False,
       meta_shacl=False,
       advanced=False,
@@ -131,11 +142,12 @@ conforms, results_graph, results_text = r
 Where:
 * `data_graph` is an rdflib `Graph` object or file path of the graph to be validated
 * `shacl_graph` is an rdflib `Graph` object or file path or Web URL of the graph containing the SHACL shapes to validate with, or None if the SHACL shapes are included in the data_graph.
-* `ont_graph` is an rdflib `Graph` object or file path or Web URL a graph containing extra ontological information, or None if not required.
+* `ont_graph` is an rdflib `Graph` object or file path or Web URL a graph containing extra ontological information, or None if not required. RDFS and OWL definitions from this are used to inoculate the DataGraph.
 * `inference` is a Python string value to indicate whether or not to perform OWL inferencing expansion of the `data_graph` before validation.
 Options are 'rdfs', 'owlrl', 'both', or 'none'. The default is 'none'.
 * `abort_on_first` (optional) `bool` value to indicate whether or not the program should abort after encountering the first validation failure or to continue. Default is to continue.
-* `allow_warnings` (optional) `bool` value, Shapes marked with severity of Warning or Info will not cause result to be invalid. 
+* `allow_infos` (optional) `bool` value, Shapes marked with severity of Info will not cause result to be invalid.
+* `allow_warnings` (optional) `bool` value, Shapes marked with severity of Warning or Info will not cause result to be invalid.
 * `meta_shacl` (optional) `bool` value to indicate whether or not the program should enable the Meta-SHACL feature. Default is False.
 * `advanced`: (optional) `bool` value to enable SHACL Advanced Features
 * `js`: (optional) `bool` value to enable SHACL-JS Features (if `pyshacl[js]` is installed)
@@ -145,7 +157,7 @@ Some other optional keyword variables available on the `validate` function:
 * `data_graph_format`: Override the format detection for the given data graph source file.
 * `shacl_graph_format`: Override the format detection for the given shacl graph source file.
 * `ont_graph_format`: Override the format detection for the given extra ontology graph source file.
-* `iterate_rules`: Interate SHACL Rules until steady state is found (only works with advanced mode).
+* `iterate_rules`: Iterate SHACL Rules until steady state is found (only works with advanced mode).
 * `do_owl_imports`: Enable the feature to allow the import of subgraphs using `owl:imports` for the shapes graph and the ontology graph. Note, you explicitly cannot use this on the target data graph.
 * `serialize_report_graph`: Convert the report results_graph into a serialised representation (for example, 'turtle')
 * `check_dash_result`: Check the validation result against the given expected DASH test suite result.
@@ -165,6 +177,44 @@ You can get an equivalent of the Command Line Tool using the Python3 executable 
 ```bash
 $ python3 -m pyshacl
 ```
+
+## Integrated OpenAPI-3.0-compatible HTTP REST Service
+
+PySHACL now has a built-in validation service, exposed via an OpenAPI3.0-compatible REST API.
+
+Due to the additional dependencies required to run, this feature is an optional extra.
+
+You must first install PySHACL with the `http` extra option enabled:
+
+```bash
+$ pip3 install -U pyshacl[http]
+```
+
+When that is installed, you can start the service using the by executing the CLI entrypoint:
+
+```bash
+$ pyshacl --server
+# or
+$ pyshacl_server
+# or
+$ python3 -m pyshacl server
+# or
+$ docker run --rm -e PYSHACL_SERVER=TRUE -i -t docker.io/ashleysommer/pyshacl:latest
+```
+
+By default, this will run the service on localhost address `127.0.0.1` on port `8099`.
+
+To view the SwaggerUI documentation for the service, navigate to `http://127.0.0.1:8099/docs/swagger` and for the ReDoc version, go to `http://127.0.0.1:8099/docs/redoc`.
+
+To view the OpenAPI3 schema see `http://127.0.0.1:8099/docs/openapi.json`
+
+### Configuring the HTTP REST Service
+
+- You can force PySHACL CLI to start up in HTTP Server mode by passing environment variable `PYSHACL_SERVER=TRUE`. This is useful in a containerised service, where you will _only_ be running PySHACL in this mode.
+- `PYSHACL_SERVER_LISTEN=1.2.3.4` listen on a different IP Address or hostname
+- `PYSHACL_SERVER_PORT=8080` listen on given different TCP PORT
+- `PYSHACL_SERVER_HOSTNAME=example.org` when you are hosting the server behind a reverse-proxy or in a containerised environment, use this so PySHACL server knows what your externally facing hostname is
+
 
 
 ## Errors
@@ -205,6 +255,17 @@ This will output ``pyshacl.exe`` in the ``dist`` directory in ``src/pyshacl``.
 You can now run the pySHACL Command Line utility via ``pyshacl.exe``.
 See above for the pySHACL command line util usage instructions.
 
+## Docker
+Pull out the official docker image from Dockerhub:
+`docker pull docker.io/ashleysommer/pyshacl:latest`
+
+Or build the image yourself, from the PySHACL repository with `docker build . -t pyshacl`.
+
+You can now run PySHACL inside a container; but you need to mount the data you want to validate.
+For example, to validate `graph.ttl` against `shacl.ttl`, run :
+```bash
+docker run --rm -i -t --mount type=bind,src=`pwd`,dst=/data pyshacl -s /data/shacl.ttl /data/graph.ttl
+```
 
 ## Compatibility
 PySHACL is a Python3 library. For best compatibility use Python v3.7 or greater. Python3 v3.6 or below is _**not supported**_ and this library _**does not work**_ on Python v2.7.x or below.

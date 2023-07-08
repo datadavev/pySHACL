@@ -2,14 +2,12 @@
 #
 import logging
 import sys
-
 from functools import wraps
-from os import path
+from os import getenv, path
 from sys import stderr
 from typing import Dict, Iterator, List, Optional, Set, Tuple, Union, cast
 
 import rdflib
-
 from rdflib import BNode, Literal, URIRef
 from rdflib.util import from_n3
 
@@ -20,9 +18,11 @@ from .consts import (
     RDF_type,
     RDFS_Resource,
     SH_conforms,
+    SH_detail,
     SH_result,
     SH_resultMessage,
     SH_ValidationReport,
+    env_truths,
 )
 from .errors import ReportableRuntimeError, ValidationFailure
 from .extras import check_extra_installed
@@ -30,20 +30,23 @@ from .functions import apply_functions, gather_functions, unapply_functions
 from .monkey import apply_patches, rdflib_bool_patch, rdflib_bool_unpatch
 from .pytypes import GraphLike
 from .rdfutil import (
+    add_baked_in,
     clone_blank_node,
     clone_graph,
     compare_blank_node,
     compare_node,
+    inoculate,
+    inoculate_dataset,
     load_from_source,
     mix_datasets,
     mix_graphs,
     order_graph_literal,
 )
-from .rdfutil.load import add_baked_in
 from .rules import apply_rules, gather_rules
 from .shapes_graph import ShapesGraph
 from .target import apply_target_types, gather_target_types
 
+USE_FULL_MIXIN = getenv("PYSHACL_USE_FULL_MIXIN") in env_truths
 
 log_handler = logging.StreamHandler(stderr)
 log = logging.getLogger(__name__)
@@ -57,15 +60,19 @@ log_handler.setLevel(logging.INFO)
 class Validator(object):
     @classmethod
     def _load_default_options(cls, options_dict: dict):
+        options_dict.setdefault('debug', False)
         options_dict.setdefault('advanced', False)
         options_dict.setdefault('inference', 'none')
         options_dict.setdefault('inplace', False)
         options_dict.setdefault('use_js', False)
         options_dict.setdefault('iterate_rules', False)
         options_dict.setdefault('abort_on_first', False)
+        options_dict.setdefault('allow_infos', False)
         options_dict.setdefault('allow_warnings', False)
         if 'logger' not in options_dict:
             options_dict['logger'] = logging.getLogger(__name__)
+            if options_dict['debug']:
+                options_dict['logger'].setLevel(logging.DEBUG)
 
     @classmethod
     def _run_pre_inference(
@@ -128,7 +135,7 @@ class Validator(object):
             raise RuntimeError("A Non-Conformant Validation Report must have at least one result.")
         if result_len > 0:
             v_text += "Results ({}):\n".format(str(result_len))
-        vg = rdflib.Graph()
+        vg = rdflib.Graph(bind_namespaces='core')
         for p, n in sg.graph.namespace_manager.namespaces():
             vg.namespace_manager.bind(p, n)
         vr = BNode()
@@ -170,6 +177,7 @@ class Validator(object):
         self._load_default_options(options)
         self.options = options  # type: dict
         self.logger = options['logger']  # type: logging.Logger
+        self.debug = options['debug']
         self.pre_inferenced = kwargs.pop('pre_inferenced', False)
         self.inplace = options['inplace']
         if not isinstance(data_graph, rdflib.Graph):
@@ -184,7 +192,7 @@ class Validator(object):
         if shacl_graph is None:
             shacl_graph = clone_graph(data_graph, identifier='shacl')
         assert isinstance(shacl_graph, rdflib.Graph), "shacl_graph must be a rdflib Graph object"
-        self.shacl_graph = ShapesGraph(shacl_graph, self.logger)  # type: ShapesGraph
+        self.shacl_graph = ShapesGraph(shacl_graph, self.debug, self.logger)  # type: ShapesGraph
 
         if options['use_js']:
             is_js_installed = check_extra_installed('js')
@@ -196,9 +204,17 @@ class Validator(object):
         return self._target_graph
 
     def mix_in_ontology(self):
+        if USE_FULL_MIXIN:
+            if not self.data_graph_is_multigraph:
+                return mix_graphs(self.data_graph, self.ont_graph, "inplace" if self.inplace else None)
+            return mix_datasets(self.data_graph, self.ont_graph, "inplace" if self.inplace else None)
         if not self.data_graph_is_multigraph:
-            return mix_graphs(self.data_graph, self.ont_graph, "inplace" if self.inplace else None)
-        return mix_datasets(self.data_graph, self.ont_graph, "inplace" if self.inplace else None)
+            if self.inplace:
+                to_graph = self.data_graph
+            else:
+                to_graph = clone_graph(self.data_graph, identifier=self.data_graph.identifier)
+            return inoculate(to_graph, self.ont_graph)
+        return inoculate_dataset(self.data_graph, self.ont_graph, self.data_graph if self.inplace else None)
 
     def run(self):
         if self.target_graph is not None:
@@ -206,22 +222,38 @@ class Validator(object):
         else:
             has_cloned = False
             if self.ont_graph is not None:
+                self.logger.debug("Cloning DataGraph to temporary memory graph, to add ontology definitions.")
                 # creates a copy of self.data_graph, doesn't modify it
                 the_target_graph = self.mix_in_ontology()
                 has_cloned = True
             else:
                 the_target_graph = self.data_graph
             inference_option = self.options.get('inference', 'none')
+            if self.inplace and self.debug:
+                self.logger.debug("Skipping DataGraph clone because inplace option is passed.")
             if inference_option and not self.pre_inferenced and str(inference_option) != "none":
                 if not has_cloned and not self.inplace:
+                    self.logger.debug("Cloning DataGraph to temporary memory graph before pre-inferencing.")
                     the_target_graph = clone_graph(the_target_graph)
-                self._run_pre_inference(the_target_graph, inference_option, self.logger)
+                    has_cloned = True
+                self.logger.debug(f"Running pre-inferencing with option='{inference_option}'.")
+                self._run_pre_inference(the_target_graph, inference_option, logger=self.logger)
                 self.pre_inferenced = True
+            if not has_cloned and not self.inplace and self.options['advanced']:
+                # We still need to clone in advanced mode, because of triple rules
+                self.logger.debug("Forcing clone of DataGraph because advanced mode is enabled.")
+                the_target_graph = clone_graph(the_target_graph)
+                has_cloned = True
+            if not has_cloned and not self.inplace:
+                # No inferencing, no ont_graph, and no advanced mode, now implies inplace mode
+                self.logger.debug("Running validation in-place, without modifying the DataGraph.")
+                self.inplace = True
             self._target_graph = the_target_graph
 
         shapes = self.shacl_graph.shapes  # This property getter triggers shapes harvest.
         iterate_rules = self.options.get("iterate_rules", False)
         if self.options['advanced']:
+            self.logger.debug("Activating SHACL-AF Features.")
             target_types = gather_target_types(self.shacl_graph)
             advanced = {
                 'functions': gather_functions(self.shacl_graph),
@@ -243,16 +275,27 @@ class Validator(object):
             named_graphs = [the_target_graph]
         reports = []
         abort_on_first: bool = bool(self.options.get("abort_on_first", False))
+        allow_infos: bool = bool(self.options.get("allow_infos", False))
         allow_warnings: bool = bool(self.options.get("allow_warnings", False))
         non_conformant = False
         aborted = False
+        if abort_on_first and self.debug:
+            self.logger.debug(
+                "Abort on first error is enabled. Will exit at end of first Shape that fails validation."
+            )
+        if self.debug:
+            self.logger.debug(f"Will run validation on {len(named_graphs)} named graph/s.")
         for g in named_graphs:
+            if self.debug:
+                self.logger.debug(f"Validating DataGraph named {g.identifier}")
             if advanced:
                 apply_functions(advanced['functions'], g)
                 apply_rules(advanced['rules'], g, iterate=iterate_rules)
             try:
                 for s in shapes:
-                    _is_conform, _reports = s.validate(g, abort_on_first=abort_on_first, allow_warnings=allow_warnings)
+                    _is_conform, _reports = s.validate(
+                        g, abort_on_first=abort_on_first, allow_infos=allow_infos, allow_warnings=allow_warnings
+                    )
                     non_conformant = non_conformant or (not _is_conform)
                     reports.extend(_reports)
                     if abort_on_first and non_conformant:
@@ -332,6 +375,7 @@ def validate(
     inference: Optional[str] = None,
     inplace: Optional[bool] = False,
     abort_on_first: Optional[bool] = False,
+    allow_infos: Optional[bool] = False,
     allow_warnings: Optional[bool] = False,
     **kwargs,
 ):
@@ -353,13 +397,16 @@ def validate(
     :type inplace: bool
     :param abort_on_first: Stop evaluating constraints after first violation is found
     :type abort_on_first: bool | None
+    :param allow_infos: Shapes marked with severity of sh:Info will not cause result to be invalid.
+    :type allow_infos: bool | None
     :param allow_warnings: Shapes marked with severity of sh:Warning or sh:Info will not cause result to be invalid.
     :type allow_warnings: bool | None
     :param kwargs:
     :return:
     """
 
-    if kwargs.get('debug', False):
+    do_debug = kwargs.get('debug', False)
+    if do_debug:
         log_handler.setLevel(logging.DEBUG)
         log.setLevel(logging.DEBUG)
     apply_patches()
@@ -370,17 +417,19 @@ def validate(
         to_meta_val = shacl_graph or data_graph
         conforms, v_r, v_t = meta_validate(to_meta_val, inference=inference, **kwargs)
         if not conforms:
-            msg = "Shacl File does not validate against the Shacl Shapes Shacl file.\n{}".format(v_t)
+            msg = f"SHACL File does not validate against the SHACL Shapes SHACL (MetaSHACL) file.\n{v_t}"
             log.error(msg)
             raise ReportableRuntimeError(msg)
     do_owl_imports = kwargs.pop('do_owl_imports', False)
     data_graph_format = kwargs.pop('data_graph_format', None)
     # force no owl imports on data_graph
-    loaded_dg = load_from_source(data_graph, rdf_format=data_graph_format, multigraph=True, do_owl_imports=False)
+    loaded_dg = load_from_source(
+        data_graph, rdf_format=data_graph_format, multigraph=True, do_owl_imports=False, logger=log
+    )
     ont_graph_format = kwargs.pop('ont_graph_format', None)
     if ont_graph is not None:
         loaded_og = load_from_source(
-            ont_graph, rdf_format=ont_graph_format, multigraph=True, do_owl_imports=do_owl_imports
+            ont_graph, rdf_format=ont_graph_format, multigraph=True, do_owl_imports=do_owl_imports, logger=log
         )
     else:
         loaded_og = None
@@ -388,7 +437,7 @@ def validate(
     if shacl_graph is not None:
         rdflib_bool_patch()
         loaded_sg = load_from_source(
-            shacl_graph, rdf_format=shacl_graph_format, multigraph=True, do_owl_imports=do_owl_imports
+            shacl_graph, rdf_format=shacl_graph_format, multigraph=True, do_owl_imports=do_owl_imports, logger=log
         )
         rdflib_bool_unpatch()
     else:
@@ -406,9 +455,11 @@ def validate(
             shacl_graph=loaded_sg,
             ont_graph=loaded_og,
             options={
+                'debug': do_debug or False,
                 'inference': inference,
                 'inplace': inplace,
                 'abort_on_first': abort_on_first,
+                'allow_infos': allow_infos,
                 'allow_warnings': allow_warnings,
                 'advanced': advanced,
                 'iterate_rules': iterate_rules,
@@ -441,6 +492,7 @@ def validate(
 def clean_validation_reports(actual_graph, actual_report, expected_graph, expected_report):
     # remove rdfs-added stuff
     # remove resultMessage if expected_report does not include result_message
+    # remove sh:detail if expected_report does not include details
     # expected_graph.remove((expected_report, RDF_type, RDFS_Resource))
     # actual_graph.remove((actual_report, RDF_type, RDFS_Resource))
     expected_graph.remove((None, RDF_type, RDFS_Resource))
@@ -448,9 +500,11 @@ def clean_validation_reports(actual_graph, actual_report, expected_graph, expect
     expected_results = list(expected_graph.objects(expected_report, SH_result))
     actual_results = list(actual_graph.objects(actual_report, SH_result))
     er_has_messages = None
+    er_has_details = False
     for er in expected_results:
         expected_graph.remove((er, RDF_type, RDFS_Resource))
         er_has_messages = list(expected_graph.objects(er, SH_resultMessage))
+        er_has_details = er_has_details or expected_graph.value(er, SH_detail) is not None
         # sourceShapes = list(expected_graph.objects(er, SH_sourceShape))
         # for s in sourceShapes:
         #     expected_graph.remove((s, RDF_type, RDFS_Resource))
@@ -466,6 +520,12 @@ def clean_validation_reports(actual_graph, actual_report, expected_graph, expect
     else:
         for ar in actual_results:
             actual_graph.remove((ar, SH_resultMessage, None))
+    if not er_has_details:
+        # If no expected result had details, remove all details from actual
+        for ar in actual_results:
+            for detail in actual_graph.objects(ar, SH_detail):
+                actual_graph -= actual_graph.cbd(detail)
+                actual_graph.remove((ar, SH_detail, detail))
     return True
 
 
@@ -478,16 +538,16 @@ def compare_validation_reports(report_graph: GraphLike, expected_graph: GraphLik
         )
     expected_conform = next(iter(expected_conforms))
     expected_result_nodes = expected_graph.objects(expected_result, SH_result)
-    expected_result_nodes = set(expected_result_nodes)
-    expected_result_node_count = len(expected_result_nodes)
+    expected_result_nodes_set = set(expected_result_nodes)
+    expected_result_node_count = len(expected_result_nodes_set)
 
     validation_reports = report_graph.subjects(RDF_type, SH_ValidationReport)
-    validation_reports = set(validation_reports)
-    if len(validation_reports) < 1:  # pragma: no cover
+    validation_reports_set = set(validation_reports)
+    if len(validation_reports_set) < 1:  # pragma: no cover
         raise ReportableRuntimeError(
             "Cannot check the validation report, the report graph does not contain a ValidationReport"
         )
-    validation_report = next(iter(validation_reports))
+    validation_report = next(iter(validation_reports_set))
     clean_validation_reports(report_graph, validation_report, expected_graph, expected_result)
     eq = compare_blank_node(report_graph, validation_report, expected_graph, expected_result)
     if eq != 0:
@@ -600,55 +660,55 @@ def check_dash_result(validator: Validator, report_graph: GraphLike, expected_re
         was_default_union = expected_result_graph.default_union
         expected_result_graph.default_union = True  # Force default-union to make all of this a bit easier
     gv_test_cases = expected_result_graph.subjects(RDF_type, DASH_GraphValidationTestCase)
-    gv_test_cases = set(gv_test_cases)
+    gv_test_cases_set = set(gv_test_cases)
     inf_test_cases = expected_result_graph.subjects(RDF_type, DASH_InferencingTestCase)
-    inf_test_cases = set(inf_test_cases)
+    inf_test_cases_set = set(inf_test_cases)
     fn_test_cases = expected_result_graph.subjects(RDF_type, DASH_FunctionTestCase)
-    fn_test_cases = set(fn_test_cases)
-    if len(gv_test_cases) > 0:
-        test_case = next(iter(gv_test_cases))
+    fn_test_cases_set = set(fn_test_cases)
+    if len(gv_test_cases_set) > 0:
+        test_case = next(iter(gv_test_cases_set))
         expected_results = expected_result_graph.objects(test_case, DASH_expectedResult)
-        expected_results = set(expected_results)
-        if len(expected_results) < 1:  # pragma: no cover
+        expected_results_set = set(expected_results)
+        if len(expected_results_set) < 1:  # pragma: no cover
             raise ReportableRuntimeError(
                 "Cannot check the expected result, the given GraphValidationTestCase does not have an expectedResult."
             )
-        expected_result = next(iter(expected_results))
+        expected_result = next(iter(expected_results_set))
         gv_res: Union[bool, None] = compare_validation_reports(report_graph, expected_result_graph, expected_result)
     else:
         gv_res = None
-    if len(inf_test_cases) > 0:
+    if len(inf_test_cases_set) > 0:
         data_graph = validator.target_graph
         if isinstance(data_graph, (rdflib.ConjunctiveGraph, rdflib.Dataset)):
             named_graphs = list(data_graph.contexts())
         else:
             named_graphs = [data_graph]
         inf_res: Union[bool, None] = True
-        for test_case in inf_test_cases:
+        for test_case in inf_test_cases_set:
             expected_results = expected_result_graph.objects(test_case, DASH_expectedResult)
-            expected_results = set(expected_results)
-            if len(expected_results) < 1:  # pragma: no cover
+            expected_results_set = set(expected_results)
+            if len(expected_results_set) < 1:  # pragma: no cover
                 raise ReportableRuntimeError(
                     "Cannot check the expected result, the given InferencingTestCase does not have an expectedResult."
                 )
             found = False
             for g in named_graphs:
-                found = found or compare_inferencing_reports(g, expected_result_graph, expected_results)
+                found = found or compare_inferencing_reports(g, expected_result_graph, expected_results_set)
             inf_res = inf_res and found
     else:
         inf_res = None
-    if len(fn_test_cases) > 0:
+    if len(fn_test_cases_set) > 0:
         data_graph = validator.target_graph
         fns = gather_functions(validator.shacl_graph)
         apply_functions(fns, data_graph)
         fn_res: Union[bool, None] = True
-        for test_case in fn_test_cases:
-            expected_results = set(expected_result_graph.objects(test_case, DASH_expectedResult))
-            if len(expected_results) < 1:  # pragma: no cover
+        for test_case in fn_test_cases_set:
+            expected_results_set = set(expected_result_graph.objects(test_case, DASH_expectedResult))
+            if len(expected_results_set) < 1:  # pragma: no cover
                 raise ReportableRuntimeError(
                     "Cannot check the expected result, the given FunctionTestCase does not have an expectedResult."
                 )
-            expected_result = next(iter(expected_results))
+            expected_result = next(iter(expected_results_set))
             expressions = set(expected_result_graph.objects(test_case, DASH_expression))
             if len(expressions) < 1:
                 raise ReportableRuntimeError(

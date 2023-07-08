@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 #
 from functools import wraps
-from typing import Iterator, List, Optional, Union, cast
+from typing import Iterator, List, Optional, Tuple, Union, cast
 
 import rdflib
-
 from rdflib.namespace import NamespaceManager
 
-from .consts import SH, RDF_first, RDFNode
+from .consts import OWL, SH, RDF_first, RDFNode
+
+OWLsameAs = OWL.sameAs
 
 
 def with_dict_cache(f):
@@ -32,7 +33,7 @@ def stringify_blank_node(
         raise RuntimeError("Can only stringify a blank node when graph is a rdflib.Graph")
     assert isinstance(graph, rdflib.Graph)
     assert isinstance(bnode, rdflib.BNode)
-    if recursion >= 9:
+    if recursion >= 12:
         return "<http://recursion.too.deep>"
     stringed_cache_key = id(graph), str(bnode)
 
@@ -61,14 +62,21 @@ def stringify_blank_node(
         return stringify_list(bnode)
     p_string_map = {}
     for p in predicates:
-        p_string = p.n3(namespace_manager=ns_manager)
+        if isinstance(p, (rdflib.Literal, rdflib.BNode, rdflib.URIRef)):
+            p_string = p.n3(namespace_manager=ns_manager)
+        else:
+            p_string = str(p)
         objs: List[RDFNode] = list(cast(Iterator[RDFNode], graph.objects(bnode, p)))
         if len(objs) < 1:
             continue
         o_texts = []
         for o in objs:
-            o_text = stringify_node(graph, o, ns_manager=ns_manager, recursion=recursion + 1)
-            o_texts.append(o_text)
+            if p is OWLsameAs and o is bnode:
+                # Avoid a crazy owl:sameAs recursion with self.
+                o_texts.append("<self>")
+            else:
+                o_text = stringify_node(graph, o, ns_manager=ns_manager, recursion=recursion + 1)
+                o_texts.append(o_text)
         if len(o_texts) > 1:
             o_texts.sort()
             o_text = ", ".join(o_texts)
@@ -101,7 +109,10 @@ def stringify_literal(graph: rdflib.Graph, node: rdflib.Literal, ns_manager: Opt
     else:
         lang_string = ""
     if node.datatype:
-        datatype_uri = stringify_node(graph, node.datatype, ns_manager=ns_manager)
+        if isinstance(node.datatype, (rdflib.URIRef, rdflib.Literal)):
+            datatype_uri = stringify_node(graph, node.datatype, ns_manager=ns_manager)
+        else:
+            datatype_uri = str(node.datatype)
         datatype_string = ", datatype={}".format(datatype_uri)
     else:
         datatype_string = ""
@@ -160,10 +171,15 @@ def stringify_node(
 
 def stringify_graph(graph: rdflib.Graph):
     string_builder = ""
+    t: Tuple[rdflib.term.Node, rdflib.term.Node, rdflib.term.Node]
     for t in iter(graph):
-        node_string = stringify_node(graph, t, ns_manager=graph.namespace_manager)
-        string_builder += node_string
-        string_builder += "\n"
+        n1, n2, n3 = t
+        node_string = stringify_node(graph, n1, ns_manager=graph.namespace_manager)
+        string_builder += node_string + ", "
+        node_string = stringify_node(graph, n2, ns_manager=graph.namespace_manager)
+        string_builder += node_string + ", "
+        node_string = stringify_node(graph, n3, ns_manager=graph.namespace_manager)
+        string_builder += node_string + "\n"
     return string_builder
 
 

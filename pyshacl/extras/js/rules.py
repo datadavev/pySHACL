@@ -8,7 +8,6 @@ from pyshacl.rules.shacl_rule import SHACLRule
 
 from .js_executable import JSExecutable
 
-
 if typing.TYPE_CHECKING:
     from pyshacl.pytypes import GraphLike
     from pyshacl.shape import Shape
@@ -22,7 +21,7 @@ class JSRule(SHACLRule):
 
     def __init__(self, shape: 'Shape', rule_node, **kwargs):
         super(JSRule, self).__init__(shape, rule_node, **kwargs)
-        shapes_graph = shape.sg  # type: ShapesGraph
+        shapes_graph: 'ShapesGraph' = shape.sg
         self.js_exe = JSExecutable(shapes_graph, rule_node)
 
     def apply(self, data_graph: 'GraphLike') -> int:

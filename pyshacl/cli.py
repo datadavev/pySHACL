@@ -9,7 +9,13 @@ from prettytable import PrettyTable
 from rdflib.namespace import SH
 
 from pyshacl import __version__, validate
-from pyshacl.errors import ReportableRuntimeError, ValidationFailure
+from pyshacl.errors import (
+    ConstraintLoadError,
+    ReportableRuntimeError,
+    RuleLoadError,
+    ShapeLoadError,
+    ValidationFailure,
+)
 
 
 class ShowVersion(argparse.Action):
@@ -19,13 +25,25 @@ class ShowVersion(argparse.Action):
         )
 
     def __call__(self, parser, namespace, values, option_string=None):
-        sys.stderr.write("PySHACL Version: " + str(__version__) + "\n")
-        parser.exit()
+        # parser.exit() writes message to stderr before calling sys.exit()
+        parser.exit(status=0, message="PySHACL Version: " + str(__version__) + "\n")
 
 
-parser = argparse.ArgumentParser(description='PySHACL {} command line tool.'.format(str(__version__)))
+def str_is_true(s_var: str):
+    if len(s_var) > 0:
+        if s_var.lower() not in ("0", "f", "n", "false", "no"):
+            return True
+    return False
+
+
+parser = argparse.ArgumentParser(description='PySHACL {} Validator command line tool.'.format(str(__version__)))
 parser.add_argument(
-    'data', metavar='DataGraph', type=argparse.FileType('rb'), help='The file containing the Target Data Graph.'
+    'data',
+    metavar='DataGraph',
+    type=argparse.FileType('rb'),
+    help='The file containing the Target Data Graph.',
+    default=None,
+    nargs='?',
 )
 parser.add_argument(
     '-s', '--shacl', dest='shacl', action='store', nargs='?', help='A file containing the SHACL Shapes Graph.'
@@ -36,7 +54,8 @@ parser.add_argument(
     dest='ont',
     action='store',
     nargs='?',
-    help='A file path or URL to a document containing extra ontological information to mix into ' 'the data graph.',
+    help='A file path or URL to a document containing extra ontological information. '
+    'RDFS and OWL definitions from this are used to inoculate the DataGraph.',
 )
 parser.add_argument(
     '-i',
@@ -89,7 +108,16 @@ parser.add_argument(
 )
 parser.add_argument('--abort', dest='abort', action='store_true', default=False, help='Abort on first invalid data.')
 parser.add_argument(
+    '--allow-info',
+    '--allow-infos',
+    dest='allow_infos',
+    action='store_true',
+    default=False,
+    help='Shapes marked with severity of Info will not cause result to be invalid.',
+)
+parser.add_argument(
     '-w',
+    '--allow-warning',
     '--allow-warnings',
     dest='allow_warnings',
     action='store_true',
@@ -145,6 +173,13 @@ parser.add_argument(
     help='Send output to a file (defaults to stdout).',
     default=sys.stdout,
 )
+parser.add_argument(
+    '--server',
+    help='Ignore all the rest of the options, start the HTTP Server. Same as `pyshacl_server`.',
+    action='store_true',
+    dest='server',
+    default=False,
+)
 # parser.add_argument('-h', '--help', action="help", help='Show this help text.')
 
 
@@ -152,7 +187,21 @@ def main():
     basename = os.path.basename(sys.argv[0])
     if basename == "__main__.py":
         parser.prog = "python3 -m pyshacl"
-    args = parser.parse_args()
+    do_server = os.getenv("PYSHACL_HTTP", "")
+    do_server = os.getenv("PYSHACL_SERVER", do_server)
+    if do_server:
+        args = {}
+    else:
+        args = parser.parse_args()
+    if str_is_true(do_server) or args.server:
+        from pyshacl.sh_http import cli as http_cli
+
+        sys.exit(http_cli())
+    elif not args.data:
+        # No datafile give, and not starting in server mode.
+        sys.stderr.write('Validation Error. No DataGraph file supplied.\n')
+        parser.print_usage(sys.stderr)
+        sys.exit(1)
     validator_kwargs = {'debug': args.debug}
     if args.shacl is not None:
         validator_kwargs['shacl_graph'] = args.shacl
@@ -177,20 +226,22 @@ def main():
             validator_kwargs['iterate_rules'] = True
     if args.abort:
         validator_kwargs['abort_on_first'] = True
+    if args.allow_infos:
+        validator_kwargs['allow_infos'] = True
     if args.allow_warnings:
         validator_kwargs['allow_warnings'] = True
     if args.shacl_file_format:
-        f = args.shacl_file_format
-        if f != "auto":
-            validator_kwargs['shacl_graph_format'] = f
+        _f: str = args.shacl_file_format
+        if _f != "auto":
+            validator_kwargs['shacl_graph_format'] = _f
     if args.ont_file_format:
-        f = args.ont_file_format
-        if f != "auto":
-            validator_kwargs['ont_graph_format'] = f
+        _f = args.ont_file_format
+        if _f != "auto":
+            validator_kwargs['ont_graph_format'] = _f
     if args.data_file_format:
-        f = args.data_file_format
-        if f != "auto":
-            validator_kwargs['data_graph_format'] = f
+        _f = args.data_file_format
+        if _f != "auto":
+            validator_kwargs['data_graph_format'] = _f
     try:
         is_conform, v_graph, v_text = validate(args.data, **validator_kwargs)
         if isinstance(v_graph, BaseException):
@@ -200,6 +251,18 @@ def main():
         args.output.write(str(vf.message))
         args.output.write("\n")
         sys.exit(1)
+    except ShapeLoadError as sle:
+        sys.stderr.write("Validator encountered a Shape Load Error:\n")
+        sys.stderr.write(str(sle))
+        sys.exit(2)
+    except ConstraintLoadError as cle:
+        sys.stderr.write("Validator encountered a Constraint Load Error:\n")
+        sys.stderr.write(str(cle))
+        sys.exit(2)
+    except RuleLoadError as rle:
+        sys.stderr.write("Validator encountered a Rule Load Error:\n")
+        sys.stderr.write(str(rle))
+        sys.exit(2)
     except ReportableRuntimeError as rre:
         sys.stderr.write("Validator encountered a Runtime Error:\n")
         sys.stderr.write(str(rre.message))
@@ -253,7 +316,7 @@ def main():
                         r[SH.resultSeverity],
                         r[SH.focusNode],
                         r[SH.resultPath] if r.get(SH.resultPath) is not None else '-',
-                        r[SH.resultMessage],
+                        r[SH.resultMessage] if r.get(SH.resultMessage) is not None else '-',
                         r[SH.sourceConstraintComponent],
                         r[SH.sourceShape],
                         r[SH.value] if r.get(SH.value) is not None else '-',

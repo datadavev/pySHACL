@@ -12,7 +12,6 @@ from pyshacl.errors import ConstraintLoadError, ReportableRuntimeError
 from pyshacl.pytypes import GraphLike
 from pyshacl.rdfutil import stringify_node
 
-
 SH_equals = SH.equals
 SH_disjoint = SH.disjoint
 SH_lessThan = SH.lessThan
@@ -54,7 +53,6 @@ class EqualsConstraintComponent(ConstraintComponent):
         return "EqualsConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
-
         if len(self.property_compare_set) < 2:
             m = "Value of {}->{} != {}".format(
                 stringify_node(datagraph, focus_node),
