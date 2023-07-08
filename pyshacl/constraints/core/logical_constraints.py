@@ -13,7 +13,6 @@ from pyshacl.errors import ConstraintLoadError, ReportableRuntimeError, ShapeRec
 from pyshacl.pytypes import GraphLike
 from pyshacl.rdfutil import stringify_node
 
-
 SH_not = SH["not"]
 SH_and = SH["and"]
 SH_or = SH["or"]
@@ -91,7 +90,7 @@ class NotConstraintComponent(ConstraintComponent):
         :type not_c: List[Node]
         :type datagraph: rdflib.Graph
         :type focus_value_nodes: dict
-        :type potentially_recursive: List
+        :type potentially_recursive: Optional[List]
         :type _evaluation_path: List
         """
         _reports = []
@@ -101,20 +100,29 @@ class NotConstraintComponent(ConstraintComponent):
             raise ReportableRuntimeError(
                 "Shape pointed to by sh:not does not exist or is not a well-formed SHACL Shape."
             )
-        if not_shape in potentially_recursive:
+        if potentially_recursive and not_shape in potentially_recursive:
             warn(ShapeRecursionWarning(_evaluation_path))
             return _non_conformant, _reports
+        upstream_reports = []
         for f, value_nodes in focus_value_nodes.items():
             for v in value_nodes:
                 try:
                     _is_conform, _r = not_shape.validate(datagraph, focus=v, _evaluation_path=_evaluation_path[:])
                 except ValidationFailure as e:
                     raise e
+                if len(_r):
+                    upstream_reports.extend(_r)
                 if _is_conform:
                     # in this case, we _dont_ want to conform!
                     _non_conformant = True
                     rept = self.make_v_result(datagraph, f, value_node=v)
                     _reports.append(rept)
+        if len(upstream_reports) and self.shape.sg.debug:
+            self.shape.logger.debug(
+                "sh:not constraint reports ignored, conformance inverted and passed to the parent Node:"
+            )
+            for v_str, v_node, v_parts in upstream_reports:
+                self.shape.logger.debug(v_str)
         return _non_conformant, _reports
 
 
@@ -183,6 +191,7 @@ class AndConstraintComponent(ConstraintComponent):
                         "Shape pointed to by sh:and does not exist or is not a well-formed SHACL Shape."
                     )
                 and_shapes.add(and_shape)
+            upstream_reports = []
             for f, value_nodes in focus_value_nodes.items():
                 for v in value_nodes:
                     passed_all = True
@@ -193,11 +202,19 @@ class AndConstraintComponent(ConstraintComponent):
                             )
                         except ValidationFailure as e:
                             raise e
+                        if len(_r):
+                            upstream_reports.extend(_r)
                         passed_all = passed_all and _is_conform
                     if not passed_all:
                         _non_conformant = True
                         rept = self.make_v_result(target_graph, f, value_node=v)
                         _reports.append(rept)
+            if len(upstream_reports) and self.shape.sg.debug:
+                self.shape.logger.debug(
+                    "sh:and constraint reports will be inspected and not passed to the parent Node:"
+                )
+                for v_str, v_node, v_parts in upstream_reports:
+                    self.shape.logger.debug(v_str)
             return _non_conformant, _reports
 
         for and_c in self.and_list:
@@ -273,6 +290,7 @@ class OrConstraintComponent(ConstraintComponent):
                         "Shape pointed to by sh:or does not exist or is not a well-formed SHACL Shape."
                     )
                 or_shapes.add(or_shape)
+            upstream_reports = []
             for f, value_nodes in focus_value_nodes.items():
                 for v in value_nodes:
                     passed_any = False
@@ -283,11 +301,19 @@ class OrConstraintComponent(ConstraintComponent):
                             )
                         except ValidationFailure as e:
                             raise e
+                        if len(_r):
+                            upstream_reports.extend(_r)
                         passed_any = passed_any or _is_conform
                     if not passed_any:
                         _non_conformant = True
                         rept = self.make_v_result(target_graph, f, value_node=v)
                         _reports.append(rept)
+            if len(upstream_reports) and self.shape.sg.debug:
+                self.shape.logger.debug(
+                    "sh:or constraint reports will be inspected and not passed to the parent Node:"
+                )
+                for v_str, v_node, v_parts in upstream_reports:
+                    self.shape.logger.debug(v_str)
             return _non_conformant, _reports
 
         for or_c in self.or_list:
@@ -364,6 +390,7 @@ class XoneConstraintComponent(ConstraintComponent):
                         "Shape pointed to by sh:xone does not exist or is not a well-formed SHACL Shape."
                     )
                 xone_shapes.append(xone_shape)
+            upstream_reports = []
             for f, value_nodes in focus_value_nodes.items():
                 for v in value_nodes:
                     passed_count = 0
@@ -374,12 +401,20 @@ class XoneConstraintComponent(ConstraintComponent):
                             )
                         except ValidationFailure as e:
                             raise e
+                        if len(_r):
+                            upstream_reports.extend(_r)
                         if _is_conform:
                             passed_count += 1
                     if not (passed_count == 1):
                         _non_conformant = True
                         rept = self.make_v_result(target_graph, f, value_node=v)
                         _reports.append(rept)
+            if len(upstream_reports) and self.shape.sg.debug:
+                self.shape.logger.debug(
+                    "sh:xone constraint reports ignored, conformance noted and passed to the parent Node:"
+                )
+                for v_str, v_node, v_parts in upstream_reports:
+                    self.shape.logger.debug(v_str)
             return _non_conformant, _reports
 
         for xone_c in self.xone_nodes:

@@ -6,7 +6,6 @@ https://www.w3.org/TR/shacl/#core-components-value-type
 import abc
 import re
 import typing
-
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from rdflib import BNode, Literal, URIRef
@@ -17,8 +16,10 @@ from pyshacl.consts import (
     SH_ask,
     SH_focusNode,
     SH_jsFunctionName,
+    SH_NodeConstraintComponent,
     SH_parameter,
     SH_path,
+    SH_PropertyConstraintComponent,
     SH_resultMessage,
     SH_resultPath,
     SH_resultSeverity,
@@ -34,7 +35,6 @@ from pyshacl.errors import ConstraintLoadError
 from pyshacl.parameter import SHACLParameter
 from pyshacl.pytypes import GraphLike
 from pyshacl.rdfutil import stringify_node
-
 
 if TYPE_CHECKING:
     from pyshacl.pytypes import RDFNode
@@ -56,7 +56,7 @@ class ConstraintComponent(object, metaclass=abc.ABCMeta):
     # True if constraint component is defined as "list-taking"
     list_taking = False
 
-    shacl_constraint_component = NotImplemented
+    shacl_constraint_component: URIRef = URIRef("urn:notimplemented")
 
     def __init__(self, shape: 'Shape'):
         """
@@ -88,25 +88,39 @@ class ConstraintComponent(object, metaclass=abc.ABCMeta):
         shape_id = str(self.shape)
         return "<{} on {}>".format(c_name, shape_id)
 
-    def recursion_triggers(self, _evaluation_path):
+    def recursion_triggers(self, _evaluation_path, trigger_depth=3) -> Optional[List['RDFNode']]:
         shape = self.shape
         eval_length = len(_evaluation_path)
+        if eval_length < 4:
+            return None
         maybe_recursive = []
-        if eval_length >= 6:
-            _shape, _self = _evaluation_path[eval_length - 2 :]
-            if _shape is not shape or _self is not self:
-                raise RuntimeError("Bad evaluation path construction")
-            seen_before = [i for i, x in enumerate(_evaluation_path[: eval_length - 2]) if x is shape]
-            for s in seen_before:
-                for i, p in enumerate(_evaluation_path[s + 1 : -2]):
-                    if isinstance(p, ConstraintComponent):
-                        if p.shape is shape and p.__class__ == self.__class__:
-                            try:
-                                next_shape = _evaluation_path[s + 1 + i + 1]
-                                maybe_recursive.append(next_shape)
-                            except IndexError:
-                                pass
-                        break
+        _shape, _self = _evaluation_path[eval_length - 2 :]
+        if _shape is not shape or _self is not self:
+            raise RuntimeError("Bad evaluation path construction")
+        prev_shape, prev_constraint = _evaluation_path[eval_length - 4 : eval_length - 2]
+        lookback_len = trigger_depth * 2
+        if isinstance(prev_constraint, ConstraintComponent):
+            if (
+                self.shacl_constraint_component is SH_PropertyConstraintComponent
+                and prev_constraint.shacl_constraint_component is SH_NodeConstraintComponent
+            ) or (
+                self.shacl_constraint_component is SH_NodeConstraintComponent
+                and prev_constraint.shacl_constraint_component is SH_PropertyConstraintComponent
+            ):
+                lookback_len = trigger_depth * 4
+        if eval_length < lookback_len:
+            return None
+        seen_before = [i for i, x in enumerate(_evaluation_path[: eval_length - 2]) if x is shape]
+        for s in seen_before:
+            for i, p in enumerate(_evaluation_path[s + 1 : -2]):
+                if isinstance(p, ConstraintComponent):
+                    if p.shape is shape and p.__class__ == self.__class__:
+                        try:
+                            next_shape = _evaluation_path[s + 1 + i + 1]
+                            maybe_recursive.append(next_shape)
+                        except IndexError:
+                            pass
+                    break
         return maybe_recursive
 
     def make_v_result_description(
@@ -221,7 +235,7 @@ class ConstraintComponent(object, metaclass=abc.ABCMeta):
         constraint_component = constraint_component or self.shacl_constraint_component
         severity = self.shape.severity
         sg = self.shape.sg.graph
-        r_triples = list()
+        r_triples: List[Tuple[RDFNode, RDFNode, Any]] = list()
         r_node = BNode()
         r_triples.append((r_node, RDF_type, SH_ValidationResult))
         r_triples.append((r_node, SH_sourceConstraintComponent, (sg, constraint_component)))
@@ -268,15 +282,31 @@ class ConstraintComponent(object, metaclass=abc.ABCMeta):
             extra_messages=extra_messages,
             bound_vars=bound_vars,
         )
-        self.shape.logger.debug(desc)
         return desc, r_node, r_triples
 
     def _format_sparql_based_result_message(self, msg, bound_vars):
         if bound_vars is None:
             return msg
-        msg = re.sub('{[?$]this}', str(bound_vars[0]), msg)
-        msg = re.sub('{[?$]path}', str(bound_vars[1]), msg)
-        msg = re.sub('{[?$]value}', str(bound_vars[2]), msg)
+        fdict = {}
+        if isinstance(bound_vars, (tuple, list)):
+            if len(bound_vars) == 4:
+                fdict.update(bound_vars[3])
+                bound_vars = bound_vars[:3]
+            if len(bound_vars) == 3:
+                if bound_vars[0] is not None:
+                    fdict['this'] = bound_vars[0]
+                if bound_vars[1] is not None:
+                    fdict['path'] = bound_vars[1]
+                if bound_vars[2] is not None:
+                    fdict['value'] = bound_vars[2]
+
+        elif isinstance(bound_vars, dict):
+            fdict.update(bound_vars)
+        else:
+            return msg
+        for var, val in fdict.items():
+            substring = "{{[?$]{}}}".format(var)
+            msg = re.sub(substring, str(val), msg)
         return msg
 
 

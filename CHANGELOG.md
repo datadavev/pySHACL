@@ -5,8 +5,167 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Python PEP 440 Versioning](https://www.python.org/dev/peps/pep-0440/).
 
 ## [Unreleased]
+- Nothing yet.
 
-- Nothing yet
+
+## [0.23.0] - 2023-05-23
+### Added
+- Added Python 3.11 support (use it, internal benchmarking shows its 25-30% faster than Python 3.8)
+- `sh:node` NodeConstraint now includes details of its child validation results, that were normally not included in the validation report.
+  - exposed via the `sh:detail` property on the NodeConstraint validation report
+
+### Changed
+- Added compatibility with Python 3.11, this requires:
+  - RDFLib v6.3 or greater (recommended v6.3.2)
+  - PyDuktape v0.4.3 for python 3.11 support
+  - Poetry v1.5.0 (or poetry-core v1.6.0)
+- Graph Namespace manager now only registers 'core' namespaces, this avoids having inconsistencies and incompatibilities with your own namespaces.
+- Replaced Flake8 and isort with Ruff
+- Updated to latest Black version for formatting
+
+### Fixed
+- Extend ontology inoculation to include triples where NamedIndividual URI is object.
+- Re-black all files, re-sort with new Ruff isort, fix some Mypy typing inconsistencies
+
+
+## [0.22.2] - 2023-04-27
+
+### In this release:
+
+### Fixed
+- Inoculating the datagraph using an extra ontology graph now copies over any missing namespace prefixes from the ontology graph to the datagraph.
+  - This is to match old ontology-graph-mixin behaviour that had this side-effect.
+  - Added a test to ensure this behaviour is not broken again.
+- Stringifying nodes in `QualifiedValueShape` default message was using wrong stringification operation.
+
+## [0.22.1] - 2023-04-26
+
+### In this release:
+
+### Fixed
+- Clone full contents of an `OWL:NamedIndividual` from the ontology graph to the datagraph, during the inoculation procedure.
+  - This fixes the case where an NamedIndividual in an OWL ontology had properties that were required in the datagraph at runtime to ensure successful validation
+- Avoid hitting the recursion limit when stringifying a blank node, when OWL inferencing has inserted owl:sameAs the same blank node as is being serialized.
+- Avoid hitting the recursion limit when cloning a graph with a blank node, when OWL inferencing has inserted owl:sameAs the same blank node as is being cloned.
+
+### Added
+- Added a default message for `QualifiedValueShape` constraint component. It never had one before.
+
+### Changed
+- Lots more debug messaging. Debugging is now _much_ more verbose.
+  - This gives more insight into how PySHACL runs, what it is doing, and how long each step takes.
+  - All constraint evaluations will now output their results, regardless of whether are conformant or non-conformant or if they are used in the final conformance report.
+  - You will probably want debug turned off unless you are tracking down the source of a problem or performance issue.
+
+
+## [0.22.0] - 2023-04-18
+
+### In this release:
+
+### Changed
+- Big change to how ontology mix-in mechanism works
+- Feature is now called datagraph inoculation
+- Inoculation copies _only_ RDFS and OWL axioms (classes, properties and relationships) from the extra-ontology file into the datagraph
+  - This mitigates a class of errors that cause the validator to perform validation on Nodes that should not be in the datagraph
+  - Such as cases where the Shapes graph and Extra-ontology graph are the same graph, but having SHACL Shapes and constraints in the datagraph is undesired.
+- Details around automatically cloning the datagraph before modification (inoculation) remain unchanged.
+- If you preferred the old behaviour, where the _whole_ extra-ontology file was mixed-in to the datafile, please file a Github issue outlining your need for that.
+
+
+## [0.21.0] - 2023-03-31
+
+### In this release:
+
+### Added
+- New HTTP Server functionality
+  - run PySHACL as a persistent service, exposing an OpenAPI3.0-compatible REST interface
+- Detection of filename when downloading web attachments is added
+- Better detection of invalid integer values for sh:minLength and sh:maxLength string constraints.
+
+### Fixed
+- Opening a http link that has chunked encoding, or content-disposition attachment will now work correctly.
+
+
+## [0.20.0] - 2022-09-08
+
+### In this release:
+
+### Fixed
+- Ill-typed/Ill-formed literals now fail the DataType test, as expected
+  - Requires RDFLib v6.2.0+
+  - Fixes #140 (and possibly fixes #151)
+  - Unskipped one of the remaining skipped shacl-test-suite SHT tests (`datatype-ill-formed_ttl.ttl`) 
+- Fixed detection of recursion to be more lenient of deliberately recursive (but not infinitely recursive) shapes.
+  - Fixes #154
+- MetaShacl works again now with RDFLib >= v6.2.0
+  - Fixes #153
+- Fixed typing issues affecting interoperability of new version of RDFLib and PySHACL.
+
+### Changed
+
+- RDFLib v6.2.0 or greater is now _required_ to run PySHACL
+  - This new version of RDFLib implements the ill-typed Literals feature, that helps with `sh:datatype` constraint validation.
+  - Removing support for older versions of RDFLib allows PySHACL to implement new features, and have less unnecessary code
+- Bumped to using new Poetry v1.2.0 (or newest poetry-core v1.1.0)
+  - Changed pytest-cov and coverage tests to be optional dependencies for dev
+- Bumped version of Black to 22.8.0, and re-blacked all files
+- Removed old monkey patches, no longer needed for the latest version of RDFLib
+- Removed bundled "Memory2" store, now using the default "Memory" from RDFLib
+  - Regenerated bundled pickled triplestores, to use Memory instead of Memory2
+- Updated official dockerfile with newest version of PySHACL and RDFLib
+  - Published to dockerhub at [ashleysommer/pyshacl](https://hub.docker.com/repository/docker/ashleysommer/pyshacl)
+  - `docker pull docker.io/ashleysommer/pyshacl:latest`
+
+
+## [0.19.1] - 2022-06-30
+
+### In this release:
+
+### Fixed
+- CLI Output Table formatting crashed when report graph did not contain a resultMessage
+  - Fixes #145
+- Executing advanced-mode triples rules can sometimes skip the graph clone step, and incorrectly emits new triples directly into the input data-graph
+  - Discovered when investigating #148
+
+### Changed
+- Executing advanced triples rules no longer incorrectly emits new triples directly into the input data-graph
+  - This _may_ been seen as a breaking change, if your workflow relied on this incorrect behaviour.
+  - If you _really_ the rules engine to emit new triples into your input data graph, use the `inplace` validator option.
+- Updated built-in `schema.ttl` file to newer version that doesn't have UTF-8 encoding issues
+
+### Added
+- Official Dockerfile is now included in the repository
+  - Thanks @KonradHoeffner; Fixes #135
+  - Published to dockerhub at [ashleysommer/pyshacl](https://hub.docker.com/repository/docker/ashleysommer/pyshacl)
+  - `docker pull docker.io/ashleysommer/pyshacl:latest`
+
+## [0.19.0] - 2022-03-22
+
+### In this release:
+
+### Fixed
+- Fixed a long-standing oversight where ShapeLoadErrors and ConstraintLoadErrors were not reported correctly when running PySHACL in CLI mode.
+  - Sorry about that. Thanks lots of people for reporting this over the last year. I wish I fixed it sooner.
+- Fixed a long-standing bug where using `$PATH` in a sh:sparql query on a PropertyShape would not work correctly.
+  - Fixes #124, Thanks @Martijn-Y-ai
+- Fixed a long-standing bug, that allows PySHACL to more reliably determine if graph source is a file path, or a graph string.
+  - Fixes #132, Thanks @Zezombye
+- Fixed an issue where `sh:pattern` could not be applied to a Literal that was not an `xsd:string` or URI.
+  - Fixes #133, Thanks @nicholascar
+- Fixed the outdated/incorrect error reported when a PropertyShape's `sh:path` value gets an unknown path type.
+  - Fixes #129, Thanks @edmondchuc  
+
+### Added
+- New `--allow-infos` option in CLI mode and Python Module mode.
+  - This is like `--allow-warnings` except it only allows violations with severity of `sh:Info`.
+  - (`--allow-warnings` continues to allow both `sh:Warning` and `sh:Info` as it used to.)
+  - Fixes #126, Thanks @ajnelson-nist
+- SPARQL-based Constraints can now substitute arbitrary bound SPARQL variables into their sh:message
+  - Fixes #120
+
+### Changed
+- `--allow-infos` and `--allow-warnings` can now also be enabled with `--allow-info` and `--allow-warning` respectively.
+- Removed Snyk check on CI/CD pipeline, because there is an RDFLib issue blocking Snyk on PySHACL from passing.
 
 ## [0.18.1] - 2022-01-22
 
@@ -896,7 +1055,15 @@ just leaves the files open. Now it is up to the command-line client to close the
 
 - Initial version, limited functionality
 
-[Unreleased]: https://github.com/RDFLib/pySHACL/compare/v0.18.1...HEAD
+[Unreleased]: https://github.com/RDFLib/pySHACL/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/RDFLib/pySHACL/compare/v0.22.2...v0.23.0
+[0.22.2]: https://github.com/RDFLib/pySHACL/compare/v0.22.1...v0.22.2
+[0.22.1]: https://github.com/RDFLib/pySHACL/compare/v0.22.0...v0.22.1
+[0.22.0]: https://github.com/RDFLib/pySHACL/compare/v0.21.0...v0.22.0
+[0.21.0]: https://github.com/RDFLib/pySHACL/compare/v0.20.0...v0.21.0
+[0.20.0]: https://github.com/RDFLib/pySHACL/compare/v0.19.1...v0.20.0
+[0.19.1]: https://github.com/RDFLib/pySHACL/compare/v0.19.0...v0.19.1
+[0.19.0]: https://github.com/RDFLib/pySHACL/compare/v0.18.1...v0.19.0
 [0.18.1]: https://github.com/RDFLib/pySHACL/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/RDFLib/pySHACL/compare/v0.17.3...v0.18.0
 [0.17.3]: https://github.com/RDFLib/pySHACL/compare/v0.17.2...v0.17.3

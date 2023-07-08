@@ -212,7 +212,7 @@ ex:AnimalShape a sh:NodeShape ;
         conforms, graph, string = res
         assert not conforms
     except ReportableRuntimeError as r:
-        assert "Shacl Shapes Shacl file" in r.message
+        assert "Shapes SHACL (MetaSHACL) file." in r.message
         did_error = True
     assert did_error
 
@@ -367,6 +367,7 @@ def test_web_retrieve():
     conforms, graph, string = res
     assert conforms
 
+
 def test_web_retrieve_fail():
     DEB_BUILD_ARCH = os.environ.get('DEB_BUILD_ARCH', None)
     DEB_HOST_ARCH = os.environ.get('DEB_HOST_ARCH', None)
@@ -425,7 +426,7 @@ def test_owl_imports_fail():
 
     res = validate(web_d2_ttl, shacl_graph=my_partial_shapes_text, data_graph_format='turtle',
                    shacl_graph_format='turtle', ont_graph=my_partial_ont_text,
-                   ont_graph_format="turtle", inference='both', debug=True, do_owl_imports=True)
+                   ont_graph_format=None, inference='both', debug=True, do_owl_imports=True)
     conforms, graph, string = res
     print(string)
     assert not conforms
