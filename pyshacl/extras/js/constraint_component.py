@@ -3,13 +3,13 @@
 import typing
 from typing import Any, Dict, List, Tuple, Union
 
-from rdflib import Literal
+from rdflib import Literal, URIRef
 
 from pyshacl.constraints import ConstraintComponent
 from pyshacl.constraints.constraint_component import CustomConstraintComponent
 from pyshacl.consts import SH, SH_ConstraintComponent, SH_message
 from pyshacl.errors import ConstraintLoadError, ReportableRuntimeError, ValidationFailure
-from pyshacl.pytypes import GraphLike
+from pyshacl.pytypes import GraphLike, SHACLExecutor
 
 from .js_executable import JSExecutable
 
@@ -65,21 +65,25 @@ class BoundShapeJSValidatorComponent(ConstraintComponent):
         self.param_bind_map = bind_map
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[URIRef]:
         # TODO:coverage: this is never used for this constraint?
         return []
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "ConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[Literal]:
         return [Literal("Parameterised Javascript Function generated constraint validation reports.")]
 
-    def evaluate(self, data_graph: GraphLike, focus_value_nodes: Dict, _evaluation_path: List):
+    def evaluate(
+        self, executor: SHACLExecutor, data_graph: GraphLike, focus_value_nodes: Dict, _evaluation_path: List
+    ):
         """
-        :type focus_value_nodes: dict
+        :type executor: SHACLExecutor
         :type data_graph: rdflib.Graph
+        :type focus_value_nodes: dict
+        :type _evaluation_path: list
         """
         reports = []
         non_conformant = False
@@ -186,9 +190,9 @@ class JSConstraintComponent(CustomConstraintComponent):
                 "https://www.w3.org/TR/shacl/#constraint-components-validators",
             )
         if is_property_val:
-            validator: Union[
-                JSConstraintComponentValidator, JSConstraintComponentPathValidator
-            ] = JSConstraintComponentPathValidator(self.sg, validator_node)
+            validator: Union[JSConstraintComponentValidator, JSConstraintComponentPathValidator] = (
+                JSConstraintComponentPathValidator(self.sg, validator_node)
+            )
         else:
             validator = JSConstraintComponentValidator(self.sg, validator_node)
         applied_validator = validator.apply_to_shape_via_constraint(self, shape)

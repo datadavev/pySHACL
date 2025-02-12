@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
 #
 import platform
-from os import path, walk
+from pathlib import Path
+
 import rdflib
 from rdflib.namespace import Namespace, RDF, RDFS
+
+from pyshacl.rdfutil.load import path_from_uri
+
 MF = Namespace('http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#')
 SHT = Namespace('http://www.w3.org/ns/shacl-test#')
 
@@ -28,12 +32,13 @@ class SHTValidate(object):
         self.label = label
         self.status = status
 
+
 class Manifest(object):
     def __init__(self, base, sht_graph, node, includes, entries=None, label=None):
         """
         Manifest constructor
         :param base: string
-        :type base: the "file://x" location uri of the base manifest graph
+        :type base: the "file:///x" location uri of the base manifest graph
         :param sht_graph:
         :type sht_graph: rdflib.Graph
         :param node: The Graph Node of the manifest itself. (unused)
@@ -111,12 +116,17 @@ def load_manifest(filename, recursion=0):
     if recursion >= 10:
         return None
     graph = rdflib.Graph()
+    base_mf: Path
     with open(filename, 'rb') as manifest_file:
-        if platform.system() == "Windows":
-            base = "file:///{}".format(path.abspath(manifest_file.name).replace("\\", "/"))
+        if manifest_file.name.startswith("./"):
+            # Special handling for relative paths
+            base_uri_str = f"file:{manifest_file.name}"
+            base_mf = Path(manifest_file.name)
         else:
-            base = "file://{}".format(path.abspath(manifest_file.name))
-        graph.parse(file=manifest_file, format='turtle', publicID=base)
+            # we need to make this absolute, before we can get the as_uri for it.
+            base_mf = Path(manifest_file.name).absolute()
+            base_uri_str: str = base_mf.as_uri()
+        graph.parse(file=manifest_file, format='turtle', publicID=base_uri_str)
     try:
         manifest = next(iter(graph.subjects(RDF.type, MF.Manifest)))
     except StopIteration:
@@ -131,16 +141,11 @@ def load_manifest(filename, recursion=0):
     for i in iter(include_objects):
         if isinstance(i, rdflib.URIRef):
             href = str(i)
-            if platform.system() == "Windows":
-                if href.startswith("file:///"):
-                    child_mf = load_manifest(href[8:], recursion=recursion+1)
-                else:
-                    raise RuntimeError("Manifest can only include file:/// uris")
+            if href.startswith("file:"):
+                child_path = path_from_uri(href, relative_to=base_mf)
+                child_mf = load_manifest(str(child_path), recursion=recursion + 1)
             else:
-                if href.startswith("file://"):
-                    child_mf = load_manifest(href[7:], recursion=recursion + 1)
-                else:
-                    raise RuntimeError("Manifest can only include file:// uris")
+                raise RuntimeError("Manifest can only include file: uris")
             if child_mf is None:
                 raise RuntimeError("Manifest include chain is too deep!")
             include_manifests.append(child_mf)
@@ -151,7 +156,7 @@ def load_manifest(filename, recursion=0):
             entries.append(i)
     except StopIteration:
         entries = None
-    mf = Manifest(base, graph, manifest, include_manifests, entries=entries, label=label)
+    mf = Manifest(base_uri_str, graph, manifest, include_manifests, entries=entries, label=label)
     # if entries and len(entries) > 0:
     #     manifests_with_entries.append(mf)
     return mf
@@ -182,7 +187,6 @@ def flatten_manifests(root_manifest, only_with_entries=False, recursion=0):
     else:
         m_list.append(root_manifest)
     for i in includes:
-        f = flatten_manifests(i, only_with_entries=only_with_entries,
-                              recursion=recursion+1)
+        f = flatten_manifests(i, only_with_entries=only_with_entries, recursion=recursion + 1)
         m_list.extend(f)
     return m_list

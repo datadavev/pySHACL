@@ -50,7 +50,7 @@ Where
  - `-f` is the ValidationReport output format (`human` = human-readable validation report)
  - `-m` enable the meta-shacl feature
  - `-a` enable SHACL Advanced Features
- - `-j` enable SHACL-JS Features (if `pyhsacl[js]` is installed)
+ - `-j` enable SHACL-JS Features (if `pyshacl[js]` is installed)
 
 System exit codes are:
 `0` = DataGraph is Conformant
@@ -63,14 +63,16 @@ Full CLI Usage options:
 $ pyshacl -h
 $ python3 -m pyshacl -h
 usage: pyshacl [-h] [-s [SHACL]] [-e [ONT]] [-i {none,rdfs,owlrl,both}] [-m]
-               [-im] [-a] [-j] [-it] [--abort] [--allow-info] [-w] [-d]
+               [-im] [-a] [-j] [-it] [--abort] [--allow-info] [-w]
+               [--max-depth [MAX_DEPTH]] [-d]
                [-f {human,table,turtle,xml,json-ld,nt,n3}]
                [-df {auto,turtle,xml,json-ld,nt,n3}]
                [-sf {auto,turtle,xml,json-ld,nt,n3}]
                [-ef {auto,turtle,xml,json-ld,nt,n3}] [-V] [-o [OUTPUT]]
+               [--server]
                DataGraph
 
-PySHACL 0.24.0 command line tool.
+PySHACL 0.27.0 command line tool.
 
 positional arguments:
   DataGraph             The file containing the Target Data Graph.
@@ -103,7 +105,16 @@ optional arguments:
   -w, --allow-warning, --allow-warnings
                         Shapes marked with severity of Warning or Info will
                         not cause result to be invalid.
-  -d, --debug           Output additional runtime messages.
+  --max-depth [MAX_DEPTH]
+                        The maximum number of SHACL shapes "deep" that the
+                        validator can go before reaching an "endpoint"
+                        constraint.
+  -d, --debug           Output additional verbose runtime messages.
+  --focus [FOCUS]       Optional IRIs of focus nodes from the DataGraph, the shapes will
+                        validate only these node. Comma-separated list.
+  --shape [SHAPE]       Optional IRIs of a NodeShape or PropertyShape from the SHACL
+                        ShapesGraph, only these shapes will be used to validate the
+                        DataGraph. Comma-separated list.
   -f {human,table,turtle,xml,json-ld,nt,n3}, --format {human,table,turtle,xml,json-ld,nt,n3}
                         Choose an output format. Default is "human".
   -df {auto,turtle,xml,json-ld,nt,n3}, --data-file-format {auto,turtle,xml,json-ld,nt,n3}
@@ -118,6 +129,8 @@ optional arguments:
   -V, --version         Show PySHACL version and exit.
   -o [OUTPUT], --output [OUTPUT]
                         Send output to a file (defaults to stdout).
+  --server              Ignore all the rest of the options, start the HTTP
+                        Server. Same as `pyshacl_server`.
 ```
 
 ## Python Module Use
@@ -161,12 +174,11 @@ Some other optional keyword variables available on the `validate` function:
 * `do_owl_imports`: Enable the feature to allow the import of subgraphs using `owl:imports` for the shapes graph and the ontology graph. Note, you explicitly cannot use this on the target data graph.
 * `serialize_report_graph`: Convert the report results_graph into a serialised representation (for example, 'turtle')
 * `check_dash_result`: Check the validation result against the given expected DASH test suite result.
-* `check_sht_result`: Check the validation result against the given expected SHT test suite result.
 
 Return value:
 * a three-component `tuple` containing:
-  * `conforms`: a `bool`, indicating whether or not the `data_graph` conforms to the `shacl_graph`
-  * `results_graph`: a `Graph` object built according to the SHACL specification's [Validation Report](https://www.w3.org/TR/shacl/#validation-report) structure
+  * `conforms`: a `bool`, indicating whether the `data_graph` conforms to the `shacl_graph`
+  * `results_graph`: a `Graph` object built according to the SHACL specification's [Validation Report](https://www.w3.org/TR/shacl/#validation-report) scheme
   * `results_text`: python string representing a verbose textual representation of the [Validation Report](https://www.w3.org/TR/shacl/#validation-report)
 
 
@@ -177,6 +189,50 @@ You can get an equivalent of the Command Line Tool using the Python3 executable 
 ```bash
 $ python3 -m pyshacl
 ```
+
+## Errors
+Under certain circumstances pySHACL can produce a [`Validation Failure`](https://www.w3.org/TR/shacl/#failures). This is a formal error [defined by the SHACL specification](https://www.w3.org/TR/shacl/#failures) and is required to be produced as a result of specific conditions within the SHACL graph that leads to the inability to complete the validation.
+If the validator produces a [`Validation Failure`](https://www.w3.org/TR/shacl/#failures), the `results_graph` variable returned by the `validate()` function will be an instance of `ValidationFailure`.
+See the `message` attribute on that instance to get more information about the validation failure.
+
+Other errors the validator can generate:
+- `ShapeLoadError`: This error is thrown when a SHACL Shape in the SHACL graph is in an invalid state and cannot be loaded into the validation engine.
+- `ConstraintLoadError`: This error is thrown when a SHACL Constraint Component is in an invalid state and cannot be loaded into the validation engine.
+- `ReportableRuntimeError`: An error occurred for a different reason, and the reason should be communicated back to the user of the validator.
+- `RuntimeError`: The validator encountered a situation that caused it to throw an error, but the reason does not concern the user.
+
+Unlike `ValidationFailure`, these errors are not passed back as a result by the `validate()` function, but thrown as exceptions by the validation engine and must be
+caught in a `try ... except` block.
+In the case of `ShapeLoadError` and `ConstraintLoadError`, see the `str()` string representation of the exception instance for the error message along with a link to the relevant section in the SHACL spec document.
+
+
+## Focus Node Filtering, and Shape Selection
+PySHACL v0.27.0 and above has two powerful new features:
+- Focus Node Filtering
+  - You can pass in a list of focus nodes to the validator, and it will only validate those focus nodes.
+  - _Note_, you still need to use a SHACL ShapesGraph, and the Shapes _still need to target_ the focus nodes.
+  - This feature will filter the Shapes' targeted focus nodes to include only those that are in the list of specified focus nodes.
+- SHACL Shape selection
+  - You can pass in a list of SHACL Shapes to the validator, and it will use only those Shapes for validation.
+  - This is useful for testing new shapes in your shapes graph, or for many other procedure-driven use cases.
+- Combined Shape Selection with Focus Node filtering
+  - The combination of the above two new features is especially powerful.
+  - If you give the validator a list of Shapes to use, and a list of focus nodes, the validator will operate in
+    a highly-targeted mode, it feeds those focus nodes directly into those given Shapes for validation.
+  - In this mode, the selected SHACL Shape does not need to specify any focus-targeting mechanisms of its own.
+
+
+## SPARQL Remote Graph Mode
+
+_**PySHACL now has a built-in SPARQL Remote Graph Mode, which allows you to validate a data graph that is stored on a remote server.**_
+
+- In this mode, PySHAL operates strictly in read-only mode, and does not modify the remote data graph.
+- Some features are disabled when using the SPARQL Remote Graph Mode:
+    - "rdfs" and "owl" inferencing is not allowed (because the remote graph is read-only, it cannot be expanded)
+    - Extra Ontology file (Inoculation or Mix-In mode) is disabled (because the remote graph is read-only)
+    - SHACL Rules (Advanced mode SPARQL-Rules) are not allowed (because the remote graph is read-only)
+    - All SHACL-JS features are disabled (this is not safe when operating on a remote graph)
+    - "inplace" mode is disabled (actually all operations on the remote data graph are inherently performed in-place)
 
 ## Integrated OpenAPI-3.0-compatible HTTP REST Service
 
@@ -216,23 +272,6 @@ To view the OpenAPI3 schema see `http://127.0.0.1:8099/docs/openapi.json`
 - `PYSHACL_SERVER_HOSTNAME=example.org` when you are hosting the server behind a reverse-proxy or in a containerised environment, use this so PySHACL server knows what your externally facing hostname is
 
 
-
-## Errors
-Under certain circumstances pySHACL can produce a `Validation Failure`. This is a formal error defined by the SHACL specification and is required to be produced as a result of specific conditions within the SHACL graph.
-If the validator produces a `Validation Failure`, the `results_graph` variable returned by the `validate()` function will be an instance of `ValidationFailure`.
-See the `message` attribute on that instance to get more information about the validation failure.
-
-Other errors the validator can generate:
-- `ShapeLoadError`: This error is thrown when a SHACL Shape in the SHACL graph is in an invalid state and cannot be loaded into the validation engine.
-- `ConstraintLoadError`: This error is thrown when a SHACL Constraint Component is in an invalid state and cannot be loaded into the validation engine.
-- `ReportableRuntimeError`: An error occurred for a different reason, and the reason should be communicated back to the user of the validator.
-- `RuntimeError`: The validator encountered a situation that caused it to throw an error, but the reason does concern the user.
-
-Unlike `ValidationFailure`, these errors are not passed back as a result by the `validate()` function, but thrown as exceptions by the validation engine and must be
-caught in a `try ... except` block.
-In the case of `ShapeLoadError` and `ConstraintLoadError`, see the `str()` string representation of the exception instance for the error message along with a link to the relevant section in the SHACL spec document.
-
-
 ## Windows CLI
 
 [Pyinstaller](https://www.pyinstaller.org/) can be
@@ -256,7 +295,7 @@ You can now run the pySHACL Command Line utility via ``pyshacl.exe``.
 See above for the pySHACL command line util usage instructions.
 
 ## Docker
-Pull out the official docker image from Dockerhub:
+Pull the official docker image from Dockerhub:
 `docker pull docker.io/ashleysommer/pyshacl:latest`
 
 Or build the image yourself, from the PySHACL repository with `docker build . -t pyshacl`.
@@ -268,12 +307,12 @@ docker run --rm -i -t --mount type=bind,src=`pwd`,dst=/data pyshacl -s /data/sha
 ```
 
 ## Compatibility
-PySHACL is a Python3 library. For best compatibility use Python v3.7 or greater. Python3 v3.6 or below is _**not supported**_ and this library _**does not work**_ on Python v2.7.x or below.
+PySHACL is a Python3 library. For best compatibility use Python v3.8 or greater. Python3 v3.7 or below is _**not supported**_ and this library _**does not work**_ on Python v2.7.x or below.
 
-PySHACL is now a PEP518 & PEP517 project, it uses `pyproject.toml` and `poetry` to manage dependencies, build and install.
+PySHACL is a PEP518 & PEP517 project, it uses `pyproject.toml` and `poetry` to manage dependencies, build and install.
 
-For best compatibility when installing from PyPI with `pip`, upgrade to pip v18.1.0 or above.
-  - If you're on Ubuntu 16.04 or 18.04, you will need to run `sudo pip3 install --upgrade pip` to get the newer version.
+For best compatibility when installing from PyPI with `pip`, upgrade to pip v20.0.2 or above.
+  - If you're on Ubuntu 18.04 or older, you will need to run `sudo pip3 install --upgrade pip` to get the newer version.
 
 
 ## Features

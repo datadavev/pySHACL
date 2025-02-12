@@ -5,12 +5,166 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Python PEP 440 Versioning](https://www.python.org/dev/peps/pep-0440/).
 
 ## [Unreleased]
-- Nothing yet...
+- Nothing yet
 
+## [0.30.0] - 2025-01-24
+
+### Fixed
+- Finalize the decoupling of `base_uri` from graph `identifier`.
+  - Blame the conflated naming of `publicID` in RDFLib for that confusion. 
+- `load_from_source` will now correctly detect and use the BaseURI of files passed in, for relative URIs.
+  - Fixes #281
+
+### Changed
+- Update to Poetry v2.0 and new pyproject.toml format.
+- Removed "Black", switched to "Ruff" for formatting as well as linting.
+- Switched to parsing `file:` IRIs in line with the RDF spec, and allow (base-less, or root-less) relative `file:` IRIs (as per the RDF spec).
+  - But "<file:>" IRIs in Turtle files are now _not_ made relative to BaseURI, because they are relative to the CWD.
+
+## [0.29.1] - 2024-12-16
+
+### Added
+- Two new basic examples in the Examples folder.
+  - "sparql_assert_datatype.py" shows how to use SPARQL-based Constraints to assert a datatype on a literal.
+  - "remote_sparql.py" shows how to use SparqlConnector store to validate data on a remote SPARQL endpoint.
+
+### Fixed
+- Fixed a bug where the `identifier` would become "None" (string) in the `load_from_source` function.
+- Typos in the example Ontology files in the test suite.
+
+
+## [0.29.0] - 2024-11-01
+
+### Added
+- When validating a Dataset instead of a bare Graph, PySHACL will now expand RDFS and OWL-RL inferences into
+  a separate named graph, to avoid polluting the datagraph.
+- When using SHACL Triple Rules from SHACL-AF spec, PySHACL will now add the expressed triples into
+  a separate named graph. This allows you to more easily get the expanded triples back out again afterward.
+  - This is implemented for TripleRules, SPARQLRules and JSRules
+
+### Changed
+- PySHACL no longer supports older RDFLib versions
+  - PySHACL relies on the latest OWL-RL version, that in-turn relies on the latest RDFLib version
+  - Therefore PySHACL now requires RDFLib v7.1.1 or newer
+- Dropped Python 3.8 support.
+  - Python developers discontinued Python 3.8 last month
+  - The next version of RDFLib and OWL-RL will not support Python 3.8
+  - Removed Python 3.8 from the RDFLib test suite
+  - Python 3.9-specific typing changes will be incrementally introduced
+
+## [0.28.1] - 2024-10-25
+
+### Fixed
+- PySHACL no longer overwrites the Python `root` logger and removes all its handlers. How Rude.
+
+## [0.28.0] - 2024-10-23
+### Added
+- owl:imports now works with bnode values, where it contains the following:
+  - schema:url is the string where to find the imported ontology
+  - schema:url (again) with a "file://" path, to a local copy of the ontology
+  - schema:identifier that is the canonical name to use for the ontology at load time (this is the publicID)
+- RDFUtil.loader `load_from_source` function now supports `identifier` that is akin to the publicID of the file being
+  loaded, and that is passed to RDFLib parser to correctly do relative URIs, etc.
+
+### Changed
+- Big change to how Milti-graph datasets (ie, rdflib.ConjunctiveGraph and rdflib.Dataset) are handled.
+  - Instead of validating each named graph individually, PySHACL now sets `defaultUnion=True` and
+  now validates the entire Dataset at once.
+  - This allows you to logically segment your dataset as desired into many individual named graphs, and validation
+  will still work as you expect it to.
+  - This is in preparation for another big upcoming change in pySHACL that will allow OWL-RL inferencing to place
+  inferred triples into a separate named graph, and SHACL Rules to place inferred triples into a separate named graph,
+  and validation will still work as expected because validation is now against a union of the whole dataset.
+- Pre-Compile Regexs in sh:Pattern constraints. This allows faster re-use of the constraint, if is applied to
+  many different targets.
+
+### Fixed
+- Attempting to stringify a focus_node ar a value_node from the datagraph, where that node doesn't actually exist in
+  the datagraph, no longer crashes, it falls back to a different method.
+
+
+## [0.27.0] - 2024-10-11
+### Added
+- SHACL Rules Expander Mode
+  - A new alternative Run Mode for PySHACL
+  - PySHACL will not validate the DataGraph against Shapes and Constraints, instead it will simply run all SHACL-AF Rules to expand the DataGraph.
+  - By default it will output a new graph containing the existing DataGraph Triples plus the expanded triples
+  - Run with inplace mode to expand the new triples directly into the input DataGraph
+- Focus Node Filtering
+  - You can now pass in a list of focus nodes to the validator, and it will only validate those focus nodes.
+  - Note, you still need to pass in a SHACL Shapes Graph, and the shapes still need to target the focus nodes.
+  - This feature will filter the Shapes' targeted focus nodes to include only those that are in the list of specified focus nodes.
+- SHACL Shape selection
+  - You can now pass in a list of SHACL Shapes to the validator, and it will use only those Shapes for validation.
+  - This is useful for testing new shapes in your shapes graph, or for many other procedure-driven use cases.
+- Combined Shape Selection with Focus Node filtering
+  - The combination of the above two new features is especially powerful.
+  - If you give the validator a list of Shapes to use, and a list of focus nodes, the validator will operate in
+    a highly-targeted mode, it feeds those focus nodes directly into those given Shapes for validation.
+  - In this mode, the selected SHACL Shape does not need to specify any focus-targeting mechanisms of its own.
+- Combined Rules Expander Mode with Shape Selection
+  - The combination of SHACL Rules Expander Mode and Shape Selection will allow specialised workflows.
+  - For example, you can run specific expansion rules from a SHACL Shapes File, based on the new triples required.
+
+### Changed
+- Don't make a clone of the DataGraph if the input data graph is ephemeral.
+  - An ephemeral graph is one that is loaded from a string or file location by PySHACL
+  - This includes all files opened by the PySHACL CLI validator tool
+  - We don't need to make a copy because PySHACL parsed the Graph into memory itself already, so we are not concerned about not polluting the user's graph.
+- Refactorings
+  - shacl_path_to_sparql_path code to a reusable importable function
+  - move sht_validate and dash_validate routes to `validator_conformance.py` module.
+    - Removes some complexity from the main `validate` function.
+- Typing
+  - A whole swathe of python typing fixes and new type annotations. Thanks @ajnelson-nist
+
+### Fixed
+- Fixed SHACL Path generation where sh:inversePath is wrapping a different kind of SHACL Path.
+  -  This probably fixes lots of unreported sh:inversePath bugs
+  -  Fixes #227
+- Fixed generic message generation when there are multiple sh:and, sh:or, or sh:xone constraints on a Shape.
+  - Fixes #220
+- Fix logic determining if a datagraph is ephemeral.
+
+
+## [0.26.0] - 2024-04-11
+### Added
+- Added ability to specify a custom max-evaluation-depth. If you find yourself with a legitimate use case, and you are certain you need to increase this limit, and you are cetain you know what you are doing:
+  - use `--max-depth i` argument on the commandline where `i` is an integer 1 to 999.
+  - or use `max_validation_depth=i` in the validator arguments if using PySHACL as a library.
+  - Fixes #224
+- Add a "SHACLExecutor" context to be passed down to all Shape and Constraint objects, to allow them to operate in a common mode with common configuration values, as chosen by the mechanism that starts them (eg, the Validator).
+  - This will allow for further configuration of "modes of operation" for PySHACL in the future, to allow for forms of exectors other than "Validator".
+### Changed
+- Bumped Black version to 24.3.0 to mitigate CVE.
+- Bumped Poetry and Poetry-Core version to latest-and-greatest (fixes a bunch of long-standing bugs, I highly recommend updating).
+- cli `main()` no longer returns and `int`, it now emits `sys.exit(code)` and never returns.
+### Fixed
+- Fixed typing on Python 3.8 and 3.12 (PRs #192 and #223). Thanks @ajnelson-nist
+- Fixed auto-generated validation message for `sh:not` when more than one `sh:not` is used on a constraint.
+
+## [0.25.0] - 2023-11-23
+### Changed
+- Dropped support for Python 3.7
+  - Note, for compatibility with RDFLib 7.0, we specify a minimum Python version of v3.8.1
+  - https://github.com/RDFLib/rdflib/blob/3bee979cd0e5b6efc57296b4fc43dd8ede8cf375/CHANGELOG.md?plain=1#L53
+- Add preliminary support for Python 3.12
+- Dropped support for RDFLib v6.2.0 and earlier
+  - Only RDFLib v6.3.2 and v7.0 are supported by PySHACL v0.25.0+
+- Bumped to updated version of Black and Ruff
+  - Reformatted everything according to py38 codestyle
+### Fixed
+- Do not hard-pin to importlib-metadata. Fixes #214
+
+## [0.24.1] - 2023-11-23
+## Note - The 0.24.x series is the last to support Python 3.7
+### RDFLib v7.0.0 and some other dependencies already don't support 3.7, so PySHACL will drop it from 0.25+
+### Fixed
+- Shape can have multiple values for `sh:not`. Fixes #217
 
 ## [0.24.0] - 2023-11-08
-## Note - This is the last version to support Python 3.7
-### RDFLib v7.0.0 and some other dependencies already don't support 3.7, so PySHACL will drop it after this release.
+## Note - The 0.24.x series is the last to support Python 3.7
+### RDFLib v7.0.0 and some other dependencies already don't support 3.7, so PySHACL will drop it from 0.25+
 ### Added
 - Compatibility with RDFLib v7.0.0 - Closes #197
 ### Fixed
@@ -1073,7 +1227,16 @@ just leaves the files open. Now it is up to the command-line client to close the
 
 - Initial version, limited functionality
 
-[Unreleased]: https://github.com/RDFLib/pySHACL/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/RDFLib/pySHACL/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/RDFLib/pySHACL/compare/v0.29.1...v0.30.0
+[0.29.1]: https://github.com/RDFLib/pySHACL/compare/v0.29.0...v0.29.1
+[0.29.0]: https://github.com/RDFLib/pySHACL/compare/v0.28.1...v0.29.0
+[0.28.1]: https://github.com/RDFLib/pySHACL/compare/v0.28.0...v0.28.1
+[0.28.0]: https://github.com/RDFLib/pySHACL/compare/v0.27.0...v0.28.0
+[0.27.0]: https://github.com/RDFLib/pySHACL/compare/v0.26.0...v0.27.0
+[0.26.0]: https://github.com/RDFLib/pySHACL/compare/v0.25.0...v0.26.0
+[0.25.0]: https://github.com/RDFLib/pySHACL/compare/v0.24.1...v0.25.0
+[0.24.1]: https://github.com/RDFLib/pySHACL/compare/v0.24.0...v0.24.1
 [0.24.0]: https://github.com/RDFLib/pySHACL/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/RDFLib/pySHACL/compare/v0.22.2...v0.23.0
 [0.22.2]: https://github.com/RDFLib/pySHACL/compare/v0.22.1...v0.22.2

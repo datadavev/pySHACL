@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 #
-from typing import Optional, Union
+from typing import Optional, Union, overload
 
 import rdflib
 from rdflib.collection import Collection
 from rdflib.graph import DATASET_DEFAULT_GRAPH_ID
 from rdflib.namespace import NamespaceManager
 
-from .consts import OWL, RDF_first
+from .consts import OWL, RDF_first, RDFNode
 from .pytypes import ConjunctiveLike, GraphLike
 
 OWLsameAs = OWL.sameAs
@@ -22,9 +22,11 @@ def clone_dataset(source_ds: ConjunctiveLike, target_ds=None):
         target_ds.namespace_manager = NamespaceManager(target_ds, 'core')
         target_ds.default_context.namespace_manager = target_ds.namespace_manager
     named_graphs = [
-        rdflib.Graph(source_ds.store, i, namespace_manager=source_ds.namespace_manager)  # type: ignore[arg-type]
-        if not isinstance(i, rdflib.Graph)
-        else i
+        (
+            rdflib.Graph(source_ds.store, i, namespace_manager=source_ds.namespace_manager)  # type: ignore[arg-type]
+            if not isinstance(i, rdflib.Graph)
+            else i
+        )
         for i in source_ds.store.contexts(None)
     ]
     if isinstance(source_ds, rdflib.Dataset) and len(named_graphs) < 1:
@@ -70,7 +72,9 @@ def clone_dataset(source_ds: ConjunctiveLike, target_ds=None):
     return target_ds
 
 
-def clone_graph(source_graph, target_graph=None, identifier=None):
+def clone_graph(
+    source_graph: rdflib.Graph, target_graph: Optional[rdflib.Graph] = None, identifier: Optional[str] = None
+) -> rdflib.Graph:
     """
     Make a clone of the source_graph by directly copying triples from source_graph to target_graph
     :param source_graph:
@@ -113,12 +117,16 @@ def mix_datasets(
     """
     default_union = base_ds.default_union
     base_named_graphs = [
-        rdflib.Graph(base_ds.store, i, namespace_manager=base_ds.namespace_manager)  # type: ignore[arg-type]
-        if not isinstance(i, rdflib.Graph)
-        else i
+        (
+            rdflib.Graph(base_ds.store, i, namespace_manager=base_ds.namespace_manager)  # type: ignore[arg-type]
+            if not isinstance(i, rdflib.Graph)
+            else i
+        )
         for i in base_ds.store.contexts(None)
     ]
     if isinstance(base_ds, rdflib.Dataset) and len(base_named_graphs) < 1:
+        # rdflib.Dataset always includes the DEFAULT_GRAPH_ID named graph
+        # but a conjunctive graph does not. It _could_ return no graphs.
         base_named_graphs = [
             rdflib.Graph(base_ds.store, DATASET_DEFAULT_GRAPH_ID, namespace_manager=base_ds.namespace_manager)
         ]
@@ -139,9 +147,11 @@ def mix_datasets(
 
     if isinstance(extra_ds, (rdflib.Dataset, rdflib.ConjunctiveGraph)):
         mixin_graphs = [
-            rdflib.Graph(extra_ds.store, i, namespace_manager=extra_ds.namespace_manager)  # type: ignore[arg-type]
-            if not isinstance(i, rdflib.Graph)
-            else i
+            (
+                rdflib.Graph(extra_ds.store, i, namespace_manager=extra_ds.namespace_manager)  # type: ignore[arg-type]
+                if not isinstance(i, rdflib.Graph)
+                else i
+            )
             for i in extra_ds.store.contexts(None)
         ]
     else:
@@ -231,6 +241,28 @@ def mix_graphs(base_graph: GraphLike, extra_graph: GraphLike, target_graph: Opti
     return g
 
 
+@overload
+def clone_list(
+    graph: rdflib.Graph,
+    lnode: rdflib.BNode,
+    target_graph: rdflib.Graph,
+    keepid: bool = ...,
+    recursion: int = ...,
+    deep_clone: bool = ...,
+) -> rdflib.BNode: ...
+
+
+@overload
+def clone_list(
+    graph: rdflib.Graph,
+    lnode: rdflib.URIRef,
+    target_graph: rdflib.Graph,
+    keepid: bool = ...,
+    recursion: int = ...,
+    deep_clone: bool = ...,
+) -> rdflib.URIRef: ...
+
+
 def clone_list(graph, lnode, target_graph, keepid=False, recursion=0, deep_clone=False):
     # If deep_clone, copy all the contents (subjects, predicates) of a named member item
     if isinstance(lnode, rdflib.BNode):
@@ -248,7 +280,9 @@ def clone_list(graph, lnode, target_graph, keepid=False, recursion=0, deep_clone
     return cloned_node
 
 
-def clone_blank_node(graph, bnode, target_graph, keepid=False, recursion=0):
+def clone_blank_node(
+    graph: rdflib.Graph, bnode: rdflib.BNode, target_graph: rdflib.Graph, keepid: bool = False, recursion: int = 0
+) -> rdflib.BNode:
     if not isinstance(graph, rdflib.Graph):
         raise RuntimeError("clone_blank_node must take an rdflib.Graph as first parameter")
     if not isinstance(bnode, rdflib.BNode):
@@ -281,7 +315,7 @@ def clone_blank_node(graph, bnode, target_graph, keepid=False, recursion=0):
     return cloned_bnode
 
 
-def clone_literal(graph, node, target_graph):
+def clone_literal(graph: rdflib.Graph, node: rdflib.Literal, target_graph: rdflib.Graph) -> rdflib.Literal:
     lex_val_string = str(node)
     lang = node.language
     datatype = node.datatype
@@ -289,8 +323,11 @@ def clone_literal(graph, node, target_graph):
     return new_literal
 
 
-def clone_node(graph, node, target_graph, recursion=0, deep_clone=False):
+def clone_node(
+    graph: rdflib.Graph, node: RDFNode, target_graph: rdflib.Graph, recursion: int = 0, deep_clone: bool = False
+) -> RDFNode:
     # If deepclone, when the type is URIRef, it clones _all_ node content (properties, objects)
+    new_node: RDFNode
     if isinstance(node, rdflib.Literal):
         new_node = clone_literal(graph, node, target_graph)
     elif isinstance(node, rdflib.BNode):
@@ -320,5 +357,5 @@ def clone_node(graph, node, target_graph, recursion=0, deep_clone=False):
                         cloned_o = clone_node(graph, o, target_graph, recursion=recursion + 1, deep_clone=deep_clone)
                     target_graph.add((new_node, cloned_p, cloned_o))
     else:
-        new_node = rdflib.term.Identifier(str(node))
+        raise ValueError(f"Cannot clone node of type {type(node)}")
     return new_node

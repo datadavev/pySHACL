@@ -41,11 +41,7 @@ for m in manifests_with_entries:
 
 tests_found_in_manifests = OrderedDict(sorted(tests_found_in_manifests.items()))
 
-tests_base_index = [
-    (base, i)
-    for base, tests in tests_found_in_manifests.items()
-    for i, t in enumerate(tests)
-]
+tests_base_index = [(base, i) for base, tests in tests_found_in_manifests.items() for i, t in enumerate(tests)]
 
 
 """
@@ -64,6 +60,7 @@ tests_base_index = [
 
 assertions = {}
 
+
 def make_assertion(base, index):
     assertion = list()
     assertion_node = rdflib.BNode()
@@ -77,12 +74,12 @@ def make_assertion(base, index):
     tests = tests_found_in_manifests[base]
     t = tests[index]
     test_uri_string = str(t.node)
-    if platform.system() == "Windows":
-        if test_uri_string.startswith("file:///"):
-            test_uri_string = test_uri_string[8:]
-    else:
-        if test_uri_string.startswith("file://"):
-            test_uri_string = test_uri_string[7:]
+    if test_uri_string.startswith("file:///"):
+        test_uri_string = test_uri_string[8:]
+    elif test_uri_string.startswith("file://"):
+        test_uri_string = test_uri_string[7:]
+    elif test_uri_string.startswith("file:"):
+        test_uri_string = test_uri_string[5:]
     test_uri_string = test_uri_string.replace(sht_files_dir, TEST_PREFIX)
     test_uri = rdflib.URIRef(test_uri_string)
     assertion.append((assertion_node, EARL.test, test_uri))
@@ -95,9 +92,14 @@ def make_assertion(base, index):
         print("testing: {}".format(label))
     try:
         val, _, v_text = pyshacl.validate(
-            data_file, shacl_graph=shacl_file, inference='rdfs',
-            check_sht_result=True, sht_validate=sht_validate,
-            debug=True, meta_shacl=False)
+            data_file,
+            shacl_graph=shacl_file,
+            inference='rdfs',
+            check_sht_result=True,
+            sht_validate=sht_validate,
+            debug=True,
+            meta_shacl=False,
+        )
     except (NotImplementedError, ReportableRuntimeError) as e:
         print(e)
         info_text = rdflib.Literal(str(e.args[0]), lang="en")

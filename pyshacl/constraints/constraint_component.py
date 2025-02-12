@@ -3,6 +3,7 @@
 """
 https://www.w3.org/TR/shacl/#core-components-value-type
 """
+
 import abc
 import re
 import typing
@@ -33,7 +34,7 @@ from pyshacl.consts import (
 )
 from pyshacl.errors import ConstraintLoadError
 from pyshacl.parameter import SHACLParameter
-from pyshacl.pytypes import GraphLike
+from pyshacl.pytypes import GraphLike, SHACLExecutor
 from pyshacl.rdfutil import stringify_node
 
 if TYPE_CHECKING:
@@ -51,14 +52,14 @@ class ConstraintComponent(object, metaclass=abc.ABCMeta):
     """
 
     # True if constraint component is defined as "shape-expecting"
-    shape_expecting = False
+    shape_expecting: bool = False
 
     # True if constraint component is defined as "list-taking"
-    list_taking = False
+    list_taking: bool = False
 
     shacl_constraint_component: URIRef = URIRef("urn:notimplemented")
 
-    def __init__(self, shape: 'Shape'):
+    def __init__(self, shape: 'Shape') -> None:
         """
 
         :param shape:
@@ -68,22 +69,24 @@ class ConstraintComponent(object, metaclass=abc.ABCMeta):
 
     @classmethod
     @abc.abstractmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[URIRef]:
         raise NotImplementedError()  # pragma: no cover
 
     @classmethod
     @abc.abstractmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         raise NotImplementedError()  # pragma: no cover
 
     @abc.abstractmethod
-    def evaluate(self, target_graph: GraphLike, focus_value_nodes: Dict, _evaluation_path: List):
+    def evaluate(
+        self, executor: SHACLExecutor, target_graph: GraphLike, focus_value_nodes: Dict, _evaluation_path: List
+    ):
         raise NotImplementedError()  # pragma: no cover
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[Literal]:
         return []
 
-    def __str__(self):
+    def __str__(self) -> str:
         c_name = str(self.__class__.__name__)
         shape_id = str(self.shape)
         return "<{} on {}>".format(c_name, shape_id)
@@ -164,7 +167,11 @@ class ConstraintComponent(object, metaclass=abc.ABCMeta):
             severity_desc = "Validation Result"
         source_shape_text = stringify_node(sg, self.shape.node)
         severity_node_text = stringify_node(sg, severity)
-        focus_node_text = stringify_node(datagraph or sg, focus_node)
+        try:
+            focus_node_text = stringify_node(datagraph or sg, focus_node)
+        except (LookupError, ValueError):
+            # focus node doesn't exist in the datagraph. We can deal.
+            focus_node_text = str(focus_node)
         desc = "{} in {} ({}):\n\tSeverity: {}\n\tSource Shape: {}\n\tFocus Node: {}\n".format(
             severity_desc,
             constraint_name,
@@ -174,7 +181,11 @@ class ConstraintComponent(object, metaclass=abc.ABCMeta):
             focus_node_text,
         )
         if value_node is not None:
-            val_node_string = stringify_node(datagraph or sg, value_node)
+            try:
+                val_node_string = stringify_node(datagraph or sg, value_node)
+            except (LookupError, ValueError):
+                # value node doesn't exist in the datagraph.
+                val_node_string = str(value_node)
             desc += "\tValue Node: {}\n".format(val_node_string)
         if result_path is None and self.shape.is_property_shape:
             result_path = self.shape.path()
@@ -433,4 +444,7 @@ class CustomConstraintComponent(object):
         return self
 
     def make_validator_for_shape(self, shape: 'Shape'):
-        raise NotImplementedError()
+        raise ConstraintLoadError(
+            "A Custom Constraint must include one of a SPARQLConstraintComponent validator or a JSConstraint validator.",
+            "https://www.w3.org/TR/shacl/#constraint-components-validators",
+        )

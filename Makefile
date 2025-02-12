@@ -32,33 +32,33 @@ dev-test: venvcheck		## Run the tests in dev environment
 	poetry run pytest --cov=pyshacl test/
 
 .PHONY: format
-format: venvcheck	## Run Black and isort Formatters
+format: venvcheck	## Run Ruff and isort Formatters
 ifeq ("$(FilePath)", "")
 	poetry run ruff check --select I --fix ./pyshacl #isort fix
-	poetry run black --config=./pyproject.toml --verbose pyshacl
+	poetry run ruff format --no-preview --target-version py39 pyshacl
 else
 	poetry run ruff check --select I --fix "$(FilePath)" #isort fix
-	poetry run black --config=./pyproject.toml --verbose "$(FilePath)"
+	poetry run ruff format --no-preview --target-version py39 "$(FilePath)"
 endif
 
 .PHONY: lint
-lint: venvcheck	## Validate with Black and isort in check-only mode
+lint: venvcheck	## Validate with Ruff and isort in check-only mode
 ifeq ("$(FilePath)", "")
 	poetry run ruff check ./pyshacl  #flake8
 	poetry run ruff check --select I ./pyshacl  #isort
-	poetry run black --config=./pyproject.toml --check --verbose pyshacl
+	poetry run ruff format --check --no-preview --target-version py39 pyshacl
 else
 	poetry run ruff check ./"$(FilePath)"  #flake8
 	poetry run ruff check --select I ./"$(FilePath)" #isort
-	poetry run black --config=./pyproject.toml --check --verbose "$(FilePath)"
+	poetry run ruff format --check --no-preview --target-version py39 "$(FilePath)"
 endif
 
 .PHONY: type-check
 type-check: venvcheck	## Validate with MyPy in check-only mode
 ifeq ("$(FilePath)", "")
-	poetry run python3 -m mypy --ignore-missing-imports pyshacl
+	poetry run python3 -m mypy --python-version 3.9 --ignore-missing-imports pyshacl
 else
-	poetry run python3 -m mypy --ignore-missing-imports "$(FilePath)"
+	poetry run python3 -m mypy --python-version 3.9 --ignore-missing-imports "$(FilePath)"
 endif
 
 .PHONY: upgrade

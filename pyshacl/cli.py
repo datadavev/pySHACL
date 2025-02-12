@@ -4,9 +4,10 @@
 import argparse
 import os
 import sys
+from io import BufferedReader
+from typing import Union, cast
 
 from prettytable import PrettyTable
-from rdflib.namespace import SH
 
 from pyshacl import __version__, validate
 from pyshacl.errors import (
@@ -40,13 +41,18 @@ parser = argparse.ArgumentParser(description='PySHACL {} Validator command line 
 parser.add_argument(
     'data',
     metavar='DataGraph',
-    type=argparse.FileType('rb'),
-    help='The file containing the Target Data Graph.',
+    help='The file or endpoint containing the Target Data Graph.',
     default=None,
     nargs='?',
 )
 parser.add_argument(
-    '-s', '--shacl', dest='shacl', action='store', nargs='?', help='A file containing the SHACL Shapes Graph.'
+    '-s',
+    '--shapes',
+    '--shacl',
+    dest='shacl',
+    action='store',
+    nargs='?',
+    help='A file containing the SHACL Shapes Graph.',
 )
 parser.add_argument(
     '-e',
@@ -73,6 +79,14 @@ parser.add_argument(
     action='store_true',
     default=False,
     help='Validate the SHACL Shapes graph against the shacl-shacl Shapes Graph before validating the Data Graph.',
+)
+parser.add_argument(
+    '-q',
+    '--sparql-mode',
+    dest='sparql_mode',
+    action='store_true',
+    default=False,
+    help='Treat the DataGraph as a SPARQL endpoint, validate the graph at the SPARQL endpoint.',
 )
 parser.add_argument(
     '-im',
@@ -125,14 +139,43 @@ parser.add_argument(
     help='Shapes marked with severity of Warning or Info will not cause result to be invalid.',
 )
 parser.add_argument(
-    '-d', '--debug', dest='debug', action='store_true', default=False, help='Output additional runtime messages.'
+    '--max-depth',
+    dest='max_depth',
+    action='store',
+    nargs='?',
+    type=int,
+    help="The maximum number of SHACL shapes \"deep\" that the validator can go before reaching an \"endpoint\" constraint.",
+)
+parser.add_argument(
+    '-d',
+    '--debug',
+    dest='debug',
+    action='store_true',
+    default=False,
+    help='Output additional verbose runtime messages.',
+)
+parser.add_argument(
+    '--focus',
+    dest='focus',
+    action='store',
+    help='Optional IRIs of focus nodes from the DataGraph, the shapes will validate only these node. Comma-separated list.',
+    nargs="?",
+    default=None,
+)
+parser.add_argument(
+    '--shape',
+    dest='shape',
+    action='store',
+    help='Optional IRIs of a NodeShape or PropertyShape from the SHACL ShapesGraph, only these shapes will be used to validate the DataGraph. Comma-separated list.',
+    nargs="?",
+    default=None,
 )
 parser.add_argument(
     '-f',
     '--format',
     dest='format',
     action='store',
-    help='Choose an output format. Default is \"human\".',
+    help='Choose an output format. Default is "human".',
     default='human',
     choices=('human', 'table', 'turtle', 'xml', 'json-ld', 'nt', 'n3'),
 )
@@ -141,7 +184,7 @@ parser.add_argument(
     '--data-file-format',
     dest='data_file_format',
     action='store',
-    help='Explicitly state the RDF File format of the input DataGraph file. Default=\"auto\".',
+    help='Explicitly state the RDF File format of the input DataGraph file. Default="auto".',
     default='auto',
     choices=('auto', 'turtle', 'xml', 'json-ld', 'nt', 'n3'),
 )
@@ -150,7 +193,7 @@ parser.add_argument(
     '--shacl-file-format',
     dest='shacl_file_format',
     action='store',
-    help='Explicitly state the RDF File format of the input SHACL file. Default=\"auto\".',
+    help='Explicitly state the RDF File format of the input SHACL file. Default="auto".',
     default='auto',
     choices=('auto', 'turtle', 'xml', 'json-ld', 'nt', 'n3'),
 )
@@ -159,7 +202,7 @@ parser.add_argument(
     '--ont-file-format',
     dest='ont_file_format',
     action='store',
-    help='Explicitly state the RDF File format of the extra ontology file. Default=\"auto\".',
+    help='Explicitly state the RDF File format of the extra ontology file. Default="auto".',
     default='auto',
     choices=('auto', 'turtle', 'xml', 'json-ld', 'nt', 'n3'),
 )
@@ -174,6 +217,13 @@ parser.add_argument(
     default=sys.stdout,
 )
 parser.add_argument(
+    '--rules',
+    help='Ignore validation options, run PySHACL in Rules Expansion mode. Same as `pyshacl_rules`.',
+    action='store_true',
+    dest='do_rules',
+    default=False,
+)
+parser.add_argument(
     '--server',
     help='Ignore all the rest of the options, start the HTTP Server. Same as `pyshacl_server`.',
     action='store_true',
@@ -183,26 +233,52 @@ parser.add_argument(
 # parser.add_argument('-h', '--help', action="help", help='Show this help text.')
 
 
-def main():
-    basename = os.path.basename(sys.argv[0])
-    if basename == "__main__.py":
-        parser.prog = "python3 -m pyshacl"
+def main(prog: Union[str, None] = None) -> None:
+    if prog is not None and len(prog) > 0:
+        parser.prog = prog
     do_server = os.getenv("PYSHACL_HTTP", "")
     do_server = os.getenv("PYSHACL_SERVER", do_server)
     if do_server:
-        args = {}
+        args = argparse.Namespace()
     else:
         args = parser.parse_args()
     if str_is_true(do_server) or args.server:
-        from pyshacl.sh_http import cli as http_cli
+        from pyshacl.sh_http import main as http_main
 
-        sys.exit(http_cli())
-    elif not args.data:
+        # http_main calls sys.exit(0) and never returns
+        http_main()
+    if args.do_rules:
+        from pyshacl.cli_rules import main as rules_main
+
+        # rules_main calls sys.exit(0) and never returns
+        rules_main()
+    if not args.data:
         # No datafile give, and not starting in server mode.
-        sys.stderr.write('Validation Error. No DataGraph file supplied.\n')
+        sys.stderr.write('Input Error. No DataGraph file or endpoint supplied.\n')
         parser.print_usage(sys.stderr)
         sys.exit(1)
     validator_kwargs = {'debug': args.debug}
+    data_file = None
+    data_graph: Union[BufferedReader, str]
+    if args.sparql_mode is not None and args.sparql_mode is True:
+        endpoint = str(args.data).strip()
+        if not endpoint.lower().startswith("http:") and not endpoint.lower().startswith("https:"):
+            sys.stderr.write("Input Error. SPARQL Endpoint must start with http:// or https://.\n")
+            sys.exit(1)
+        data_graph = endpoint
+        validator_kwargs['sparql_mode'] = True
+    else:
+        try:
+            data_file = open(args.data, 'rb')
+        except FileNotFoundError:
+            sys.stderr.write('Input Error. DataGraph file not found.\n')
+            sys.exit(1)
+        except PermissionError:
+            sys.stderr.write('Input Error. DataGraph file not readable.\n')
+            sys.exit(1)
+        else:
+            # NOTE: This cast is not necessary in Python >= 3.10.
+            data_graph = cast(BufferedReader, data_file)
     if args.shacl is not None:
         validator_kwargs['shacl_graph'] = args.shacl
     if args.ont is not None:
@@ -219,6 +295,10 @@ def main():
         validator_kwargs['advanced'] = True
     if args.js:
         validator_kwargs['js'] = True
+    if args.focus:
+        validator_kwargs['focus_nodes'] = [_f.strip() for _f in args.focus.split(',')]
+    if args.shape:
+        validator_kwargs['use_shapes'] = [_s.strip() for _s in args.shape.split(',')]
     if args.iterate_rules:
         if not args.advanced:
             sys.stderr.write("Iterate-Rules option only works when you enable Advanced Mode.\n")
@@ -242,37 +322,41 @@ def main():
         _f = args.data_file_format
         if _f != "auto":
             validator_kwargs['data_graph_format'] = _f
+    exit_code: Union[int, None] = None
     try:
-        is_conform, v_graph, v_text = validate(args.data, **validator_kwargs)
+        is_conform, v_graph, v_text = validate(data_graph, **validator_kwargs)
         if isinstance(v_graph, BaseException):
             raise v_graph
     except ValidationFailure as vf:
         args.output.write("Validator generated a Validation Failure result:\n")
         args.output.write(str(vf.message))
         args.output.write("\n")
-        sys.exit(1)
+        exit_code = 1
     except ShapeLoadError as sle:
         sys.stderr.write("Validator encountered a Shape Load Error:\n")
         sys.stderr.write(str(sle))
-        sys.exit(2)
+        exit_code = 2
     except ConstraintLoadError as cle:
         sys.stderr.write("Validator encountered a Constraint Load Error:\n")
         sys.stderr.write(str(cle))
-        sys.exit(2)
+        exit_code = 2
     except RuleLoadError as rle:
         sys.stderr.write("Validator encountered a Rule Load Error:\n")
         sys.stderr.write(str(rle))
-        sys.exit(2)
+        exit_code = 2
     except ReportableRuntimeError as rre:
         sys.stderr.write("Validator encountered a Runtime Error:\n")
         sys.stderr.write(str(rre.message))
         sys.stderr.write("\nIf you believe this is a bug in pyshacl, open an Issue on the pyshacl github page.\n")
-        sys.exit(2)
+        exit_code = 2
     except NotImplementedError as nie:
         sys.stderr.write("Validator feature is not implemented:\n")
-        sys.stderr.write(str(nie.args[0]))
+        if len(nie.args) > 0:
+            sys.stderr.write(str(nie.args[0]))
+        else:
+            sys.stderr.write("No message provided.")
         sys.stderr.write("\nIf your use-case requires this feature, open an Issue on the pyshacl github page.\n")
-        sys.exit(3)
+        exit_code = 3
     except RuntimeError as re:
         import traceback
 
@@ -280,8 +364,16 @@ def main():
         sys.stderr.write(
             "\n\nValidator encountered a Runtime Error. Please report this to the PySHACL issue tracker.\n"
         )
-        sys.exit(2)
-
+        exit_code = 2
+    finally:
+        if data_file is not None:
+            try:
+                data_file.close()
+            except Exception as e:
+                sys.stderr.write("Error closing data file:\n")
+                sys.stderr.write(str(e))
+        if exit_code is not None:
+            sys.exit(exit_code)
     if args.format == 'human':
         args.output.write(v_text)
     elif args.format == 'table':
@@ -302,14 +394,18 @@ def main():
             return '\n'.join(s2)
 
         if not is_conform:
+            from rdflib import Graph
+            from rdflib.namespace import SH
+
             t2 = PrettyTable()
             t2.field_names = ['No.', 'Severity', 'Focus Node', 'Result Path', 'Message', 'Component', 'Shape', 'Value']
             t2.align = "l"
 
+            assert isinstance(v_graph, Graph)
             for i, o in enumerate(v_graph.objects(None, SH.result)):
                 r = {}
                 for o2 in v_graph.predicate_objects(o):
-                    r[o2[0]] = str(col_widther(o2[1].replace(f'{SH}', ''), 25))  # max col width 30 chars
+                    r[o2[0]] = str(col_widther(str(o2[1]).replace(f'{SH}', ''), 25))  # max col width 30 chars
                 t2.add_row(
                     [
                         i + 1,
@@ -329,10 +425,7 @@ def main():
             v_graph = v_graph.decode('utf-8')
         args.output.write(v_graph)
     args.output.close()
-    if is_conform:
-        sys.exit(0)
-    else:
-        sys.exit(1)
+    sys.exit(0 if is_conform else 1)
 
 
 if __name__ == "__main__":

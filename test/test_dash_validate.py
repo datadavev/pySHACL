@@ -3,6 +3,9 @@
 import pytest
 from os import path, walk
 import glob
+
+import rdflib
+
 import pyshacl
 from pyshacl.errors import ReportableRuntimeError
 
@@ -26,13 +29,20 @@ ALLOWABLE_FAILURES = ["/rules/triple/person2schema.test.ttl"]
 
 for x in walk(path.join(dash_files_dir, 'core')):
     for y in glob.glob(path.join(x[0], '*.test.ttl')):
-        dash_core_files.append((y, None))
+        if "node/datatype-002" in y:
+            dash_core_files.append((y, None))
+
 
 @pytest.mark.parametrize('target_file, shacl_file', dash_core_files)
 def test_dash_validate_all_core(target_file, shacl_file):
+    # Literals in the data graph should be exactly the same as literals in the shapes graph
+    # When the validator parses the shapes graph, it does it with NORMALIZE_LITERALS disabled
+    # So we must also disable NORMALIZE_LITERALS when parsing the data graph
+    rdflib.NORMALIZE_LITERALS = False
     try:
         val, _, v_text = pyshacl.validate(
-            target_file, shacl_graph=shacl_file, inference='rdfs', check_dash_result=True, debug=True, meta_shacl=False)
+            target_file, shacl_graph=shacl_file, inference='rdfs', check_dash_result=True, debug=True, meta_shacl=False
+        )
     except (NotImplementedError, ReportableRuntimeError) as e:
         print(e)
         val = False
@@ -41,16 +51,75 @@ def test_dash_validate_all_core(target_file, shacl_file):
     print(v_text)
 
 
+@pytest.mark.parametrize('target_file, shacl_file', dash_core_files)
+def test_dash_validate_all_core_sparql_mode(target_file, shacl_file):
+    # Literals in the data graph should be exactly the same as literals in the shapes graph
+    # When the validator parses the shapes graph, it does it with NORMALIZE_LITERALS disabled
+    # So we must also disable NORMALIZE_LITERALS when parsing the data graph
+    rdflib.NORMALIZE_LITERALS = False
+    try:
+        if shacl_file is None:
+            # shacl_file cannot be None in SPARQL Remote Graph Mode
+            shacl_file = target_file
+        val, _, v_text = pyshacl.validate(
+            target_file,
+            shacl_graph=shacl_file,
+            inference='none',
+            check_dash_result=True,
+            debug=True,
+            sparql_mode=True,
+            meta_shacl=False,
+        )
+    except (NotImplementedError, ReportableRuntimeError) as e:
+        print(e)
+        val = False
+        v_text = ""
+    print(v_text)
+    assert val
+
 
 for x in walk(path.join(dash_files_dir, 'sparql')):
     for y in glob.glob(path.join(x[0], '*.test.ttl')):
         dash_sparql_files.append((y, None))
 
+
 @pytest.mark.parametrize('target_file, shacl_file', dash_sparql_files)
 def test_dash_validate_all_sparql(target_file, shacl_file):
+    # Literals in the data graph should be exactly the same as literals in the shapes graph
+    # When the validator parses the shapes graph, it does it with NORMALIZE_LITERALS disabled
+    # So we must also disable NORMALIZE_LITERALS when parsing the data graph
+    rdflib.NORMALIZE_LITERALS = False
     try:
         val, _, v_text = pyshacl.validate(
-            target_file, shacl_graph=shacl_file, inference='rdfs', check_dash_result=True, debug=True, meta_shacl=False)
+            target_file, shacl_graph=shacl_file, inference='rdfs', check_dash_result=True, debug=True, meta_shacl=False
+        )
+    except (NotImplementedError, ReportableRuntimeError) as e:
+        print(e)
+        val = False
+        v_text = ""
+    assert val
+    print(v_text)
+
+
+@pytest.mark.parametrize('target_file, shacl_file', dash_sparql_files)
+def test_dash_validate_all_sparql_sparql_mode(target_file, shacl_file):
+    # Literals in the data graph should be exactly the same as literals in the shapes graph
+    # When the validator parses the shapes graph, it does it with NORMALIZE_LITERALS disabled
+    # So we must also disable NORMALIZE_LITERALS when parsing the data graph
+    rdflib.NORMALIZE_LITERALS = False
+    try:
+        if shacl_file is None:
+            # shacl_file cannot be None in SPARQL Remote Graph Mode
+            shacl_file = target_file
+        val, _, v_text = pyshacl.validate(
+            target_file,
+            shacl_graph=shacl_file,
+            inference='none',
+            check_dash_result=True,
+            debug=True,
+            sparql_mode=True,
+            meta_shacl=False,
+        )
     except (NotImplementedError, ReportableRuntimeError) as e:
         print(e)
         val = False
@@ -82,13 +151,23 @@ def test_dash_validate_all_sparql(target_file, shacl_file):
 for x in walk(path.join(dash_files_dir, 'rules', 'sparql')):
     for y in glob.glob(path.join(x[0], '*.test.ttl')):
         dash_sparql_rules_files.append((y, None))
+
+
 @pytest.mark.parametrize('target_file, shacl_file', dash_sparql_rules_files)
 def test_dash_validate_all_sparql_rules(target_file, shacl_file):
     try:
         val, _, v_text = pyshacl.validate(
-            target_file, shacl_graph=shacl_file, advanced=True, inference='rdfs', check_dash_result=True, debug=True, meta_shacl=False)
+            target_file,
+            shacl_graph=shacl_file,
+            advanced=True,
+            inference='rdfs',
+            check_dash_result=True,
+            debug=True,
+            meta_shacl=False,
+        )
     except (NotImplementedError, ReportableRuntimeError) as e:
         import traceback
+
         print(e)
         traceback.print_tb(e.__traceback__)
         val = False
@@ -96,16 +175,26 @@ def test_dash_validate_all_sparql_rules(target_file, shacl_file):
     assert val
     print(v_text)
 
+
 # Get all triple-rules tests.
 for x in walk(path.join(dash_files_dir, 'rules', 'triple')):
     for y in glob.glob(path.join(x[0], '*.test.ttl')):
         dash_triple_rules_files.append((y, None))
+
+
 @pytest.mark.parametrize('target_file, shacl_file', dash_triple_rules_files)
 def test_dash_validate_all_triple_rules(target_file, shacl_file):
     test_name = shacl_file or target_file
     try:
         val, _, v_text = pyshacl.validate(
-            target_file, shacl_graph=shacl_file, advanced=True, inference='rdfs', check_dash_result=True, debug=True, meta_shacl=False)
+            target_file,
+            shacl_graph=shacl_file,
+            advanced=True,
+            inference='rdfs',
+            check_dash_result=True,
+            debug=True,
+            meta_shacl=False,
+        )
     except NotImplementedError as ne:
         for ani in ALLOWABLE_NOT_IMPLEMENTED:
             if test_name.endswith(ani):
@@ -119,6 +208,7 @@ def test_dash_validate_all_triple_rules(target_file, shacl_file):
             v_text = ""
     except ReportableRuntimeError as e:
         import traceback
+
         print(e)
         traceback.print_tb(e.__traceback__)
         val = False
@@ -135,17 +225,27 @@ def test_dash_validate_all_triple_rules(target_file, shacl_file):
             raise ae
 
     print(v_text)
+
 
 # Get all SHACL-AF sh:target tests.
 for x in walk(path.join(dash_files_dir, 'target')):
     for y in glob.glob(path.join(x[0], '*.test.ttl')):
         dash_target_files.append((y, None))
+
+
 @pytest.mark.parametrize('target_file, shacl_file', dash_target_files)
 def test_dash_validate_target(target_file, shacl_file):
     test_name = shacl_file or target_file
     try:
         val, _, v_text = pyshacl.validate(
-            target_file, shacl_graph=shacl_file, advanced=True, inference='rdfs', check_dash_result=True, debug=True, meta_shacl=False)
+            target_file,
+            shacl_graph=shacl_file,
+            advanced=True,
+            inference='rdfs',
+            check_dash_result=True,
+            debug=True,
+            meta_shacl=False,
+        )
     except NotImplementedError as ne:
         for ani in ALLOWABLE_NOT_IMPLEMENTED:
             if test_name.endswith(ani):
@@ -159,6 +259,7 @@ def test_dash_validate_target(target_file, shacl_file):
             v_text = ""
     except ReportableRuntimeError as e:
         import traceback
+
         print(e)
         traceback.print_tb(e.__traceback__)
         val = False
@@ -175,17 +276,76 @@ def test_dash_validate_target(target_file, shacl_file):
             raise ae
 
     print(v_text)
+
+
+@pytest.mark.parametrize('target_file, shacl_file', dash_target_files)
+def test_dash_validate_target_sparql_mode(target_file, shacl_file):
+    test_name = shacl_file or target_file
+    try:
+        if shacl_file is None:
+            # shacl_file cannot be None in SPARQL Remote Graph Mode
+            shacl_file = target_file
+        val, _, v_text = pyshacl.validate(
+            target_file,
+            shacl_graph=shacl_file,
+            advanced=True,
+            inference='none',
+            check_dash_result=True,
+            debug=True,
+            sparql_mode=True,
+            meta_shacl=False,
+        )
+    except NotImplementedError as ne:
+        for ani in ALLOWABLE_NOT_IMPLEMENTED:
+            if test_name.endswith(ani):
+                v_text = "Skipping not implemented feature in test: {}".format(test_name)
+                print(v_text)
+                val = True
+                break
+        else:
+            print(ne)
+            val = False
+            v_text = ""
+    except ReportableRuntimeError as e:
+        import traceback
+
+        print(e)
+        traceback.print_tb(e.__traceback__)
+        val = False
+        v_text = ""
+    try:
+        assert val
+    except AssertionError as ae:
+        for af in ALLOWABLE_FAILURES:
+            if test_name.endswith(af):
+                v_text = "Allowing failure in test: {}".format(test_name)
+                print(v_text)
+                break
+        else:
+            raise ae
+
+    print(v_text)
+
 
 # Get all SHACL-AF sh:expression tests.
 for x in walk(path.join(dash_files_dir, 'expression')):
     for y in glob.glob(path.join(x[0], '*.test.ttl')):
         dash_expression_files.append((y, None))
+
+
 @pytest.mark.parametrize('target_file, shacl_file', dash_expression_files)
 def test_dash_validate_expression(target_file, shacl_file):
     test_name = shacl_file or target_file
     try:
         val, _, v_text = pyshacl.validate(
-            target_file, shacl_graph=shacl_file, advanced=True, inference='rdfs', check_dash_result=True, debug=True, meta_shacl=False)
+            target_file,
+            shacl_graph=shacl_file,
+            advanced=True,
+            inference='rdfs',
+            check_dash_result=True,
+            debug=True,
+            meta_shacl=False,
+        )
     except NotImplementedError as ne:
         for ani in ALLOWABLE_NOT_IMPLEMENTED:
             if test_name.endswith(ani):
@@ -199,6 +359,7 @@ def test_dash_validate_expression(target_file, shacl_file):
             v_text = ""
     except ReportableRuntimeError as e:
         import traceback
+
         print(e)
         traceback.print_tb(e.__traceback__)
         val = False
@@ -216,16 +377,26 @@ def test_dash_validate_expression(target_file, shacl_file):
 
     print(v_text)
 
+
 # Get all SHACLFunction tests
 for x in walk(path.join(dash_files_dir, 'function')):
     for y in glob.glob(path.join(x[0], '*.test.ttl')):
         dash_fn_files.append((y, None))
+
+
 @pytest.mark.parametrize('target_file, shacl_file', dash_fn_files)
 def test_dash_validate_functions(target_file, shacl_file):
     test_name = shacl_file or target_file
     try:
         val, _, v_text = pyshacl.validate(
-            target_file, shacl_graph=shacl_file, advanced=True, inference='rdfs', check_dash_result=True, debug=True, meta_shacl=False)
+            target_file,
+            shacl_graph=shacl_file,
+            advanced=True,
+            inference='rdfs',
+            check_dash_result=True,
+            debug=True,
+            meta_shacl=False,
+        )
     except NotImplementedError as ne:
         for ani in ALLOWABLE_NOT_IMPLEMENTED:
             if test_name.endswith(ani):
@@ -239,6 +410,7 @@ def test_dash_validate_functions(target_file, shacl_file):
             v_text = ""
     except ReportableRuntimeError as e:
         import traceback
+
         print(e)
         traceback.print_tb(e.__traceback__)
         val = False

@@ -1,21 +1,34 @@
 [build-system]
-requires = ["poetry-core>=1.8.1,<2"]
+requires = ["poetry-core<3,>=2.0"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.poetry]
+[project]
 name = "pyshacl"
-version = "0.24.0"
 # Don't forget to change the version number in __init__.py, Dockerfile, and CITATION.cff along with this one
+version = "0.30.0"
+# Ruff and Poetry both now read target-version from [project.requires-python]
+# The <4 is reauired for compatiblity with OWL-RL that requdires Python <4
+requires-python = ">=3.9,<4"
 description = "Python SHACL Validator"
-license = "Apache-2.0"
+license = { file = "LICENSE.txt" }
 authors = [
-    "Ashley Sommer <Ashley.Sommer@csiro.au>"
+    {name = "Ashley Sommer", email = "Ashley.Sommer@csiro.au"}
 ]
 readme = "README.md"
-repository = "https://github.com/RDFLib/pySHACL"
-homepage = "https://github.com/RDFLib/pySHACL"
-keywords = ["Linked Data", "Semantic Web", "RDF", "Python", "SHACL", "Shapes", "Schema", "Validate"]
+keywords = [
+    "Linked Data",
+    "Semantic Web",
+    "RDF",
+    "Graph",
+    "Python",
+    "SHACL",
+    "Shapes",
+    "Schema",
+    "Validate",
+    "Validator"
+]
 classifiers = [
+    "License :: OSI Approved :: Apache Software License",
     "Development Status :: 5 - Production/Stable",
     "Topic :: Utilities",
     "Intended Audience :: Developers",
@@ -24,14 +37,62 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Operating System :: OS Independent"
 ]
+dependencies = [
+    "rdflib[html]>=7.1.1,<8.0",
+    "owlrl>=7.1.2,<8",
+    "prettytable>=3.5.0; python_version<'3.12'",
+    "prettytable>=3.7.0; python_version>='3.12'",
+    "packaging>=21.3",
+    "importlib-metadata>6; python_version<'3.12'",
+]
+
+[project.urls]
+homepage = "https://github.com/RDFLib/pySHACL"
+source = "https://github.com/RDFLib/pySHACL"
+issues = "https://github.com/RDFLib/pySHACL/issues"
+download = "https://github.com/RDFLib/pySHACL/releases"
+changelog = "https://github.com/RDFLib/pySHACL/blob/master/CHANGELOG.md"
+
+[project.optional-dependencies]
+# These are equivelent to python package "extras"
+js = [
+    "pyduktape2<1,>=0.4.6"
+]
+http = [
+    "sanic<23,>=22.12",
+    "sanic-ext<23.6,>=23.3",
+    "sanic-cors==2.2.0"
+]
+dev-lint = [
+    "ruff<0.10,>=0.9.3",
+    "platformdirs"
+]
+dev-type-checking = [
+    "mypy>=1.13.0",
+    "types-setuptools",
+    "platformdirs"
+]
+dev-coverage = [
+    "pytest-cov<3,>=2.8.1",
+    "coverage>6,<7,!=6.0.*,!=6.1,!=6.1.1",
+    "platformdirs"
+]
+
+[project.scripts]
+pyshacl = "pyshacl.cli:main"
+pyshacl_rules = "pyshacl.cli_rules:main"
+pyshacl_validate = "pyshacl.cli:main"
+pyshacl_server = "pyshacl.http:cli"
+
+[tool.poetry]
 packages = [
     { include = "pyshacl" },
     { include = "examples", format = "sdist" },
@@ -49,108 +110,25 @@ include = [
     { path = "Makefile", format = "sdist" },
     { path = "*.md" },
     { path = "*.txt" },
+    { path = "pyshacl/py.typed" },
     { path = "pyshacl/assets/*.pickle" },
     { path = "pyshacl/*.spec" }
 ]
 
-[tool.poetry.dependencies]
-python = "^3.7.0"  # Compatible python versions must be declared here
-rdflib = [
-    {version=">=6.3.2,<8.0", python = ">=3.8.1"},
-    {version=">=6.2.0,<=6.3.2", python = "<3.8.1"}
-]
-html5lib = ">=1.1,<2"
-owlrl = ">=6.0.2,<7"
-prettytable = [
-    {version=">=3.5.0,<3.8.0", python = "<3.8"},
-    {version=">=3.5.0", python = ">=3.8,<3.12"},
-    {version=">=3.7.0", python = ">=3.12"}
-]
-packaging = ">=21.3"
-importlib-metadata = {version="4.13", python = "<3.11"}
-pyduktape2 = {version="^0.4.6", optional=true}
-sanic = {version=">=22.12, <23", optional=true} #For the HTTP service
-sanic-ext = {version=">=23.3, <23.6", optional=true} #For the HTTP service
-sanic-cors = {version="2.2.0", optional=true} #For the HTTP service
-ruff = {version="^0.0.267", optional=true}
-black = {version="23.3.0", optional=true}
-mypy = [
-    {version=">=0.812,<0.900", optional=true, python = "<3.10"},
-    {version=">=0.900,<0.1000", optional=true, python = ">=3.10"}
-    ]
-types-setuptools = {version="*", optional=true}
-platformdirs = {version="*", optional=true}
-coverage = {version=">6,<7,!=6.0.*,!=6.1,!=6.1.1", optional=true}
-pytest-cov = {version="^2.8.1", optional=true}
-
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 pytest = "^7.2"
 coverage = {version=">6,<7,!=6.0.*,!=6.1,!=6.1.1", optional=true}
 pytest-cov = {version="^2.8.1", optional=true}
-ruff = {version="^0.0.267", optional=true}
-mypy = [
-    {version=">=0.812,<0.900", optional=true, python = "<3.10"},
-    {version=">=0.900,<0.1000", optional=true, python = ">=3.10"}
-    ]
+ruff = {version="<0.10,>=0.9.3", optional=true}
+mypy = {version=">=1.13.0", optional=true}
 types-setuptools = {version="*", optional=true}
 platformdirs = {version="*", optional=true}
-
-[tool.poetry.extras]
-js = ["pyduktape2"]
-http = ["sanic", "sanic-ext", "sanic-cors"]
-dev-lint = ["ruff", "black", "platformdirs"]
-dev-type-checking = ["mypy", "types-setuptools", "platformdirs"]
-dev-coverage = ["pytest-cov", "coverage", "platformdirs"]
-
-
-[tool.poetry.scripts]
-pyshacl = "pyshacl.cli:main"
-pyshacl_validate = "pyshacl.cli:main"
-pyshacl_server = "pyshacl.http:cli"
 
 [tool.dephell.main]
 from = {format = "poetry", path = "pyproject.toml"}
 to = {format = "setuppy", path = "setup.py"}
 
-[tool.black]
-required-version = "23.3.0"
-line-length = "119"
-skip-string-normalization = true
-target-version = ['py37']
-include = '\.pyi?$'
-exclude = '''
-(
-  /(
-      \.eggs         # exclude a few common directories in the
-    | \.git          # root of the project
-    | \.hg
-    | \.mypy_cache
-    | \.ruff_cache
-    | \.pytest_cache
-    | \.tox
-    | \.venv
-    | _build
-    | htmlcov
-    | benchmarks
-    | examples
-    | pyshacl.egg-info
-    | buck-out
-    | build
-    | dist
-    | venv
-  )/
-)
-'''
-
 [tool.ruff]
-# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default.
-select = ["E", "F"]
-ignore = ["E501"]  # Turn off ruff's too-long-line detection for now, we'll have to enable it again later.
-
-# Allow autofix for all enabled rules (when `--fix`) is provided.
-fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "TRY", "UP", "YTT"]
-unfixable = []
-
 # Exclude a variety of commonly ignored directories.
 exclude = [
     ".bzr",
@@ -168,6 +146,7 @@ exclude = [
     ".svn",
     ".tox",
     ".venv",
+    ".idea",
     "htmlcov",
     "__pypackages__",
     "_build",
@@ -178,20 +157,28 @@ exclude = [
     "node_modules",
     "venv",
 ]
-
-# Same as Black.
 line-length = 119
+
+[tool.ruff.format]
+quote-style = "preserve"
+
+[lint]
+# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default.
+select = ["E", "F"]
+ignore = ["E501"]  # Turn off ruff's too-long-line detection for now, we'll have to enable it again later.
+
+# Allow autofix for all enabled rules (when `--fix`) is provided.
+fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "TRY", "UP", "YTT"]
+unfixable = []
 # Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
-# Assume Python 3.10.
-target-version = "py37"
 
-[tool.ruff.mccabe]
+[lint.mccabe]
 # Unlike Flake8, default to a complexity level of 10.
 max-complexity = 10
 
-[tool.ruff.pycodestyle]
+[lint.pycodestyle]
 ignore-overlong-task-comments = true
 
 [tool.pytest.ini_options]
@@ -204,62 +191,32 @@ testpaths = [
 legacy_tox_ini = """
 [tox]
 skipsdist = true
-envlist = py38, py39, py310, py311, lint, type-checking
+envlist = py39, py310, py311, py312, lint, type-checking
 toxworkdir={env:TOX_WORK_DIR:.tox}
 
 [testenv]
 deps =
-    poetry>=1.7.0
+    poetry>=2
 passenv =
-    TRAVIS
-    TRAVIS_JOB_ID
-    TRAVIS_BRANCH
-    TRAVIS_BUILD_DIR
-    DRONE_BUILD_NUMBER
-    DRONE_STAGE_NAME
-    DRONE_STAGE_KIND
-    DRONE_REPO_NAME
-    DRONE_SOURCE_BRANCH
-    COVERALLS_SERVICE_NAME
-    COVERALLS_REPO_TOKEN
-    DRONE_COMMIT_AUTHOR_NAME
-    DRONE_COMMIT_AUTHOR_EMAIL
-    DRONE_COMMIT
-    HAS_COVERALLS
     DBUS_SESSION_BUS_ADDRESS
     PIP_KEYRING_PROVIDER
     PIP_FORCE_KEYRING
     PYTHON_KEYRING_BACKEND
 skip_install = true
 allowlist_externals = python3, ls, pwd, env, poetry
-setenv =
-    COVERALLS_SERVICE_NUMBER ={env:DRONE_BUILD_NUMBER:0}
-    COVERALLS_SERVICE_JOB_ID = {env:DRONE_STAGE_NAME:stage}
-    COVERALLS_SERVICE_JOB_NUMBER = {env:DRONE_BUILD_NUMBER:0}
-    COVERALLS_FLAG_NAME = {env:DRONE_STAGE_KIND:build}
-    COVERALLS_GIT_REPO = {env:DRONE_REPO_NAME:RDFLib/pySHACL}
-    COVERALLS_GIT_BRANCH = {env:DRONE_SOURCE_BRANCH:master}
-    CI_BRANCH = {env:DRONE_SOURCE_BRANCH:master}
-    GIT_BRANCH = {env:DRONE_SOURCE_BRANCH:master}
-    GIT_AUTHOR_NAME = {env:DRONE_COMMIT_AUTHOR_NAME:nobody}
-    GIT_AUTHOR_EMAIL = {env:DRONE_COMMIT_AUTHOR_EMAIL:nobody@example.com}
-    GIT_ID = {env:DRONE_COMMIT:0}
 
 commands_pre =
     py39: poetry run pip3 install -U "pip>=21.0"
     py310: poetry run pip3 install -U "pip>=21.3"
     py311: poetry run pip3 install -U "pip>=22.1"
     poetry install -vv -n --no-root --extras "js dev-coverage"
-    # Coveralls required to send coverage report to coveralls.io
-    py38: poetry run pip3 install "coveralls>=3.3.1"
 
 commands =
     - poetry show
-    poetry run pytest --cov=pyshacl test/
+    poetry run pytest -v --log-level=INFO --cov=pyshacl test/
     - poetry run coverage combine --append
     poetry run coverage report -m
     poetry run coverage html -i
-    py38: - coveralls
 
 [testenv:lint]
 commands_pre =
@@ -269,7 +226,7 @@ commands =
     - poetry show
     poetry run ruff check ./pyshacl
     poetry run ruff check --select I ./pyshacl #isort
-    poetry run black --check --verbose --config ./pyproject.toml pyshacl
+    poetry run ruff format --check --no-preview --target-version py39 pyshacl #black
 
 [testenv:type-checking]
 commands_pre =
@@ -278,6 +235,14 @@ commands_pre =
     poetry run pip3 install "mypy>=0.812" "types-setuptools"
 commands =
     - poetry show
-    poetry run python3 -m mypy --ignore-missing-imports pyshacl
+    poetry run python3 -m mypy --python-version 3.9 --ignore-missing-imports pyshacl
+
+[gh]
+# Don't include lint or type-checking in gh-actions matrix
+python =
+    3.12 = py312
+    3.11 = py311
+    3.10 = py310
+    3.9 = py39
 
 """
